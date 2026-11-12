@@ -380,7 +380,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
         throw StateError('The camera did not return an image.');
       }
       final directory = await getTemporaryDirectory();
-      final imageFile = File('\u0024{directory.path}/findmythings_scan.jpg');
+      final imageFile = File('${directory.path}/findmythings_scan.jpg');
       await imageFile.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
       setState(() => _scanStatus = 'Running YOLO object detection…');
@@ -389,10 +389,10 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       setState(() {
         _scanStatus = detections.isEmpty
             ? 'No familiar objects detected. Try better lighting or move closer.'
-            : 'Detected: ' + detections.map((d) => '\u0024{d.label} (\u0024{(d.confidence * 100).round()}%)').join(', ');
+            : 'Detected: ' + detections.map((d) => '${d.label} (${(d.confidence * 100).round()}%)').join(', ');
       });
     } catch (error) {
-      if (mounted) setState(() => _scanStatus = 'Detection failed: \u0024error');
+      if (mounted) setState(() => _scanStatus = 'Detection failed: $error');
     } finally {
       if (mounted) setState(() => _scanning = false);
     }
