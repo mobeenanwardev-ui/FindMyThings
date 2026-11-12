@@ -39,6 +39,7 @@ dependencies:
   shared_preferences: ^2.5.6
   path_provider: ^2.1.6
   camera_macos: ^0.1.1
+  core_ml: ^0.1.0
 
 dev_dependencies:
   flutter_test:
@@ -61,6 +62,13 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/models/yolov8n.mlpackage/
+    - assets/models/yolov8n.mlpackage/Data/com.apple.CoreML/
+    - assets/models/yolov8n.mlpackage/Data/com.apple.CoreML/weights/
+    - assets/models/clip_image_encoder.mlpackage/
+    - assets/models/clip_image_encoder.mlpackage/Data/com.apple.CoreML/
+    - assets/models/clip_image_encoder.mlpackage/Data/com.apple.CoreML/weights/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
