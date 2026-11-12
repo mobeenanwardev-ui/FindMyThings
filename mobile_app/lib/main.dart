@@ -290,7 +290,7 @@ class _ItemDialogState extends State<ItemDialog> {
         TextField(controller:_category,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Category',hintText:'For example: Everyday items')),
         const SizedBox(height:14),
         ClipRRect(borderRadius:BorderRadius.circular(14),child:SizedBox(height:140,width:double.infinity,
-          child:_photo!=null?Image.file(File(_photo!.path),fit:BoxFit.cover):oldExists?Image.file(File(old),fit:BoxFit.cover):
+          child:_photo!=null?Image.file(File(_photo!.path),fit:BoxFit.cover):oldExists?Image.file(File(old!),fit:BoxFit.cover):
             Container(color:const Color(0xFFE8EEE8),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[
               Icon(Icons.add_a_photo_outlined,size:34,color:green),SizedBox(height:5),Text('A photo helps you recognise it',style:TextStyle(color:muted,fontSize:12)),
             ])))),
