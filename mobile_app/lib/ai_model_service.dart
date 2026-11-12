@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:core_ml/core_ml.dart';
 import 'package:image/image.dart' as img;
 
@@ -141,7 +142,7 @@ class AiModelService {
       if (refNorm == 0 || cameraNorm == 0) {
         throw StateError('CLIP returned an empty embedding.');
       }
-      return ImageMatch(similarity: dot / (refNorm * cameraNorm).sqrt());
+      return ImageMatch(similarity: dot / math.sqrt(refNorm * cameraNorm));
     } finally {
       await model?.dispose();
     }
@@ -175,16 +176,3 @@ class AiModelService {
   }
 }
 
-extension on double {
-  double sqrt() => this <= 0 ? 0 : _sqrt(this);
-}
-
-double _sqrt(double value) {
-  var x = value;
-  var next = (x + 1) / 2;
-  while ((next - x).abs() > 1e-10) {
-    x = next;
-    next = (x + value / x) / 2;
-  }
-  return x;
-}
