@@ -1,0 +1,28 @@
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environment
+.venv/
+venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ML model weights
+*.pt
+*.pth
+*.onnx
+
+# macOS
+.DS_Store
+
+# Personal photographs
+*.jpg
+*.jpeg
+*.png
+
+# Environment secrets
+.env
