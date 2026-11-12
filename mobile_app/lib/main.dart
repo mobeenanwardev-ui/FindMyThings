@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() => runApp(const FindMyThingsApp());
 
@@ -19,22 +22,24 @@ class FindMyThingsApp extends StatelessWidget {
 }
 
 class Belonging {
-  const Belonging(this.name, this.category, this.icon, this.tint);
+  const Belonging(this.name, this.category, this.icon, this.tint, {this.imagePath});
   final String name;
   final String category;
   final IconData icon;
   final Color tint;
+  final String? imagePath;
 }
 
 class AddBelongingDialog extends StatefulWidget {
   const AddBelongingDialog({super.key});
-
   @override
   State<AddBelongingDialog> createState() => _AddBelongingDialogState();
 }
 
 class _AddBelongingDialogState extends State<AddBelongingDialog> {
   final TextEditingController _controller = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+  XFile? _photo;
 
   @override
   void dispose() {
@@ -42,30 +47,46 @@ class _AddBelongingDialogState extends State<AddBelongingDialog> {
     super.dispose();
   }
 
+  Future<void> _choosePhoto() async {
+    final photo = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1600);
+    if (photo != null && mounted) setState(() => _photo = photo);
+  }
+
   void _submit() {
     final value = _controller.text.trim();
-    if (value.isNotEmpty) Navigator.of(context).pop(value);
+    if (value.isNotEmpty) Navigator.of(context).pop({'name': value, 'imagePath': _photo?.path});
   }
 
   @override
   Widget build(BuildContext context) => AlertDialog(
     backgroundColor: const Color(0xFFFFFEFA),
     title: const Text('Add a belonging', style: TextStyle(fontWeight: FontWeight.w700)),
-    content: TextField(
-      controller: _controller,
-      autofocus: true,
-      textCapitalization: TextCapitalization.words,
-      decoration: InputDecoration(
-        hintText: 'e.g. My camera',
-        filled: true,
-        fillColor: const Color(0xFFF2F1EB),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+    content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+      TextField(
+        controller: _controller, autofocus: true, textCapitalization: TextCapitalization.words,
+        decoration: InputDecoration(hintText: 'e.g. My camera', filled: true, fillColor: const Color(0xFFF2F1EB),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)),
+        onSubmitted: (_) => _submit(),
       ),
-      onSubmitted: (_) => _submit(),
-    ),
+      const SizedBox(height: 14),
+      if (_photo != null)
+        ClipRRect(borderRadius: BorderRadius.circular(14),
+          child: Image.file(File(_photo!.path), height: 130, width: double.infinity, fit: BoxFit.cover))
+      else
+        Container(height: 92, width: double.infinity,
+          decoration: BoxDecoration(color: const Color(0xFFF2F1EB), borderRadius: BorderRadius.circular(14)),
+          child: const Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Icon(Icons.image_outlined, color: Color(0xFF173F35), size: 27), SizedBox(height: 5),
+            Text('Add a reference photo', style: TextStyle(fontSize: 12, color: Color(0xFF656B65))),
+          ])),
+      const SizedBox(height: 9),
+      SizedBox(width: double.infinity, child: OutlinedButton.icon(
+        onPressed: _choosePhoto, icon: const Icon(Icons.photo_library_outlined),
+        label: Text(_photo == null ? 'Choose image' : 'Change image'))),
+    ])),
     actions: [
       TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
-      FilledButton(onPressed: _submit, child: const Text('Add item')),
+      FilledButton(onPressed: _submit, child: const Text('Save item')),
     ],
   );
 }
@@ -87,17 +108,18 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedTab = 0;
 
   Future<void> _addItem() async {
-    final name = await showDialog<String>(
+    final result = await showDialog<Map<String, String?>>(
       context: context,
       builder: (_) => const AddBelongingDialog(),
     );
-    if (!mounted || name == null || name.trim().isEmpty) return;
+    if (!mounted || result == null || (result['name'] ?? '').trim().isEmpty) return;
     setState(() {
       _items.insert(0, Belonging(
-        name.trim(),
+        result['name']!.trim(),
         'My belongings',
         Icons.inventory_2_outlined,
         const Color(0xFFE5E8D8),
+        imagePath: result['imagePath'],
       ));
     });
   }
@@ -182,8 +204,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 decoration: BoxDecoration(color: const Color(0xFFFFFEFA), borderRadius: BorderRadius.circular(21),
                   border: Border.all(color: const Color(0xFFECEBE4))),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Container(width: 46, height: 46, decoration: BoxDecoration(color: item.tint, borderRadius: BorderRadius.circular(15)),
-                    child: Icon(item.icon, color: forest, size: 23)),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(15),
+                    child: item.imagePath != null
+                        ? Image.file(File(item.imagePath!), width: 58, height: 58, fit: BoxFit.cover)
+                        : Container(width: 58, height: 58, decoration: BoxDecoration(color: item.tint, borderRadius: BorderRadius.circular(15)),
+                            child: Icon(item.icon, color: forest, size: 25)),
+                  ),
                   const Spacer(),
                   Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF26312A))),
