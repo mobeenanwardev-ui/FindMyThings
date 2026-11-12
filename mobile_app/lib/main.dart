@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:camera_macos/camera_macos.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -121,18 +122,11 @@ class _HomePageState extends State<HomePage> {
 
   void _toast(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
 
-  void _find(Belonging item) => showModalBottomSheet<void>(
-    context: context, showDragHandle: true, backgroundColor: Colors.white,
-    builder: (c) => SafeArea(child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Ready to find it?', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: green)),
-        const SizedBox(height: 8),
-        Text('You selected ${item.name}. Your reference photo is saved. The offline camera and AI matching engine still need to be connected.',
-          style: const TextStyle(color: muted, height: 1.5)),
-        const SizedBox(height: 18),
-        SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Got it'))),
-      ]))));
+  void _find(Belonging item) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => CameraFinderPage(item: item),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -315,5 +309,133 @@ class _ItemDialogState extends State<ItemDialog> {
         TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
         FilledButton(onPressed:_busy?null:_submit,child:const Text('Save')),
       ]);
+  }
+}
+
+
+class CameraFinderPage extends StatefulWidget {
+  const CameraFinderPage({super.key, required this.item});
+  final Belonging item;
+
+  @override
+  State<CameraFinderPage> createState() => _CameraFinderPageState();
+}
+
+class _CameraFinderPageState extends State<CameraFinderPage> {
+  CameraMacOSController? _cameraController;
+  String? _cameraError;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF101915),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF101915),
+        foregroundColor: Colors.white,
+        title: const Text('Find your thing'),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+              child: Row(
+                children: [
+                  if (widget.item.photo != null && File(widget.item.photo!).existsSync())
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.file(File(widget.item.photo!), width: 54, height: 54, fit: BoxFit.cover),
+                    )
+                  else
+                    const CircleAvatar(
+                      radius: 27,
+                      backgroundColor: Color(0xFFE8EEE8),
+                      child: Icon(Icons.inventory_2_outlined, color: forest),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Looking for', style: TextStyle(color: Color(0xFFB8C8BF), fontSize: 12)),
+                        Text(widget.item.name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(color: const Color(0xFF26372F), borderRadius: BorderRadius.circular(22)),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    CameraMacOSView(
+                      fit: BoxFit.cover,
+                      cameraMode: CameraMacOSMode.photo,
+                      onCameraInizialized: (controller) {
+                        if (mounted) {
+                          setState(() {
+                            _cameraController = controller;
+                            _cameraError = null;
+                          });
+                        }
+                      },
+                    ),
+                    if (_cameraController == null && _cameraError == null)
+                      const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(color: Colors.white),
+                            SizedBox(height: 14),
+                            Text('Starting your camera…', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ),
+                    if (_cameraError != null)
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text(_cameraError!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                    Positioned(
+                      left: 14,
+                      right: 14,
+                      bottom: 14,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.58), borderRadius: BorderRadius.circular(14)),
+                        child: const Text(
+                          'Move your MacBook or place the item in front of the camera. Live AI matching is the next step.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Color(0xFF81958A)), padding: const EdgeInsets.symmetric(vertical: 15)),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Close camera'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
