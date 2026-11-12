@@ -26,6 +26,50 @@ class Belonging {
   final Color tint;
 }
 
+class AddBelongingDialog extends StatefulWidget {
+  const AddBelongingDialog({super.key});
+
+  @override
+  State<AddBelongingDialog> createState() => _AddBelongingDialogState();
+}
+
+class _AddBelongingDialogState extends State<AddBelongingDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = _controller.text.trim();
+    if (value.isNotEmpty) Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    backgroundColor: const Color(0xFFFFFEFA),
+    title: const Text('Add a belonging', style: TextStyle(fontWeight: FontWeight.w700)),
+    content: TextField(
+      controller: _controller,
+      autofocus: true,
+      textCapitalization: TextCapitalization.words,
+      decoration: InputDecoration(
+        hintText: 'e.g. My camera',
+        filled: true,
+        fillColor: const Color(0xFFF2F1EB),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      ),
+      onSubmitted: (_) => _submit(),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+      FilledButton(onPressed: _submit, child: const Text('Add item')),
+    ],
+  );
+}
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -43,34 +87,19 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedTab = 0;
 
   Future<void> _addItem() async {
-    final controller = TextEditingController();
     final name = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: const Color(0xFFFFFEFA),
-        title: const Text('Add a belonging', style: TextStyle(fontWeight: FontWeight.w700)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(
-            hintText: 'e.g. My camera',
-            filled: true,
-            fillColor: const Color(0xFFF2F1EB),
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
-          ),
-          onSubmitted: (_) => Navigator.pop(dialogContext, controller.text.trim()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Add item')),
-        ],
-      ),
+      builder: (_) => const AddBelongingDialog(),
     );
-    if (name != null && name.isNotEmpty && mounted) {
-      setState(() => _items.insert(0, Belonging(name, 'My belongings', Icons.inventory_2_outlined, const Color(0xFFE5E8D8))));
-    }
-    controller.dispose();
+    if (!mounted || name == null || name.trim().isEmpty) return;
+    setState(() {
+      _items.insert(0, Belonging(
+        name.trim(),
+        'My belongings',
+        Icons.inventory_2_outlined,
+        const Color(0xFFE5E8D8),
+      ));
+    });
   }
 
   void _showFindMessage(Belonging item) {
