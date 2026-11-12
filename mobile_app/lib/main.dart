@@ -157,61 +157,73 @@ class _HomePageState extends State<HomePage> {
       ]),
   );
 
-  Widget _inventory() => CustomScrollView(slivers: [
-    SliverPadding(padding: const EdgeInsets.fromLTRB(20,12,20,16), sliver: SliverList(delegate: SliverChildListDelegate([
-      Container(padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: green,borderRadius: BorderRadius.circular(23)),
+  Widget _inventory() => ListView(
+    padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
+    children: [
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: green, borderRadius: BorderRadius.circular(23)),
         child: Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('YOUR LITTLE INVENTORY',style: TextStyle(color: Color(0xFFC9D9CE),fontSize:10,fontWeight:FontWeight.w800,letterSpacing:1.2)),
-            const SizedBox(height:8),
-            Text('${_items.length} ${_items.length == 1 ? 'thing' : 'things'} saved',style: const TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w800)),
-            const Text('Saved privately on this device.',style:TextStyle(color:Color(0xFFE1EAE3),fontSize:12)),
+            const Text('YOUR LITTLE INVENTORY', style: TextStyle(color: Color(0xFFC9D9CE), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+            const SizedBox(height: 8),
+            Text('${_items.length} ${_items.length == 1 ? 'thing' : 'things'} saved', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
+            const Text('Saved privately on this device.', style: TextStyle(color: Color(0xFFE1EAE3), fontSize: 12)),
           ])),
-          const Icon(Icons.inventory_2_outlined,size:42,color:Color(0xFFE1EAE3)),
-        ])),
-      const SizedBox(height:22),
-      Text(_tab == 1 ? 'Recently added' : 'Your things',style: const TextStyle(fontSize:22,fontWeight:FontWeight.w800,color:Color(0xFF202A24))),
-      const SizedBox(height:12),
-      TextField(onChanged:(v)=>setState(()=>_search=v),decoration:const InputDecoration(hintText:'Search by name',prefixIcon:Icon(Icons.search))),
-    ])))),
-    if (_shown.isEmpty)
-      SliverFillRemaining(hasScrollBody:false,child: Center(child: Padding(padding: const EdgeInsets.all(30),child: Column(mainAxisSize:MainAxisSize.min,children:[
-        const Icon(Icons.add_a_photo_outlined,size:55,color:green),
-        const SizedBox(height:14),
-        Text(_search.isEmpty ? 'Nothing here yet' : 'No matches found',style:const TextStyle(fontSize:19,fontWeight:FontWeight.w800)),
-        const SizedBox(height:6),
-        Text(_search.isEmpty ? 'Tap “Add a thing” to save your first belonging.' : 'Try another name.',textAlign:TextAlign.center,style:const TextStyle(color:muted)),
-      ])))),
-    if (_shown.isNotEmpty)
-      SliverPadding(padding:const EdgeInsets.fromLTRB(20,0,20,110),sliver:SliverGrid(
-        delegate:SliverChildBuilderDelegate((c,i){
-          final item=_shown[i];
-          final hasPhoto=item.photo!=null && File(item.photo!).existsSync();
-          return Material(color:Colors.white,borderRadius:BorderRadius.circular(20),clipBehavior:Clip.antiAlias,
-            child: Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-              Expanded(child:Stack(fit:StackFit.expand,children:[
-                if(hasPhoto) Image.file(File(item.photo!),fit:BoxFit.cover)
-                else Container(color:const Color(0xFFE8EEE8),child:const Icon(Icons.photo_outlined,size:42,color:green)),
-                Positioned(right:6,top:6,child:Row(children:[
-                  _Action(icon:Icons.edit_outlined,onTap:()=>_edit(item:item)),
-                  const SizedBox(width:5),
-                  _Action(icon:Icons.delete_outline,onTap:()=>_delete(item)),
+          const Icon(Icons.inventory_2_outlined, size: 42, color: Color(0xFFE1EAE3)),
+        ]),
+      ),
+      const SizedBox(height: 22),
+      Text(_tab == 1 ? 'Recently added' : 'Your things', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF202A24))),
+      const SizedBox(height: 12),
+      TextField(onChanged: (value) => setState(() => _search = value), decoration: const InputDecoration(hintText: 'Search by name', prefixIcon: Icon(Icons.search))),
+      const SizedBox(height: 16),
+      if (_shown.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 42),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.add_a_photo_outlined, size: 55, color: green),
+            const SizedBox(height: 14),
+            Text(_search.isEmpty ? 'Nothing here yet' : 'No matches found', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 6),
+            Text(_search.isEmpty ? 'Tap “Add a thing” to save your first belonging.' : 'Try another name.', textAlign: TextAlign.center, style: const TextStyle(color: muted)),
+          ]),
+        )
+      else
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _shown.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 0.73),
+          itemBuilder: (context, index) {
+            final item = _shown[index];
+            final hasPhoto = item.photo != null && File(item.photo!).existsSync();
+            return Material(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              clipBehavior: Clip.antiAlias,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Expanded(child: Stack(fit: StackFit.expand, children: [
+                  if (hasPhoto) Image.file(File(item.photo!), fit: BoxFit.cover)
+                  else Container(color: const Color(0xFFE8EEE8), child: const Icon(Icons.photo_outlined, size: 42, color: green)),
+                  Positioned(right: 6, top: 6, child: Row(children: [
+                    _Action(icon: Icons.edit_outlined, onTap: () => _edit(item: item)),
+                    const SizedBox(width: 5),
+                    _Action(icon: Icons.delete_outline, onTap: () => _delete(item)),
+                  ])),
                 ])),
-              ])),
-              Padding(padding:const EdgeInsets.fromLTRB(10,9,10,10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-                Text(item.name,maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:14)),
-                Text(item.category,maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(color:muted,fontSize:11)),
-                const SizedBox(height:7),
-                SizedBox(width:double.infinity,height:34,child:FilledButton.tonalIcon(
-                  onPressed:()=>_find(item),icon:const Icon(Icons.search,size:16),label:const Text('Find it'),
-                  style:FilledButton.styleFrom(foregroundColor:green,backgroundColor:const Color(0xFFE8EEE8),padding:EdgeInsets.zero))),
-              ])),
-            ]));
-        },childCount:_shown.length),
-        gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:0.73),
-      )),
-  ]);
-
+                Padding(padding: const EdgeInsets.fromLTRB(10, 9, 10, 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                  Text(item.category, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: muted, fontSize: 11)),
+                  const SizedBox(height: 7),
+                  SizedBox(width: double.infinity, height: 34, child: FilledButton.tonalIcon(onPressed: () => _find(item), icon: const Icon(Icons.search, size: 16), label: const Text('Find it'), style: FilledButton.styleFrom(foregroundColor: green, backgroundColor: const Color(0xFFE8EEE8), padding: EdgeInsets.zero))),
+                ])),
+              ]),
+            );
+          },
+        ),
+    ],
+  );
   Widget _settings() => ListView(padding:const EdgeInsets.all(22),children:[
     const Text('Settings',style:TextStyle(fontSize:27,fontWeight:FontWeight.w800)),
     const SizedBox(height:14),
