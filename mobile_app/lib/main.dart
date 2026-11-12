@@ -366,6 +366,37 @@ class CameraFinderPage extends StatefulWidget {
 class _CameraFinderPageState extends State<CameraFinderPage> {
   CameraMacOSController? _cameraController;
   String? _cameraError;
+  String? _scanStatus;
+  bool _scanning = false;
+
+  Future<void> _scanForObjects() async {
+    final controller = _cameraController;
+    if (controller == null || _scanning) return;
+    setState(() { _scanning = true; _scanStatus = 'Capturing image…'; });
+    try {
+      final photo = await controller.takePicture();
+      final bytes = photo?.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw StateError('The camera did not return an image.');
+      }
+      final directory = await getTemporaryDirectory();
+      final imageFile = File('\u0024{directory.path}/findmythings_scan.jpg');
+      await imageFile.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      setState(() => _scanStatus = 'Running YOLO object detection…');
+      final detections = await AiModelService().detectObjects(imageFile.path);
+      if (!mounted) return;
+      setState(() {
+        _scanStatus = detections.isEmpty
+            ? 'No familiar objects detected. Try better lighting or move closer.'
+            : 'Detected: ' + detections.map((d) => '\u0024{d.label} (\u0024{(d.confidence * 100).round()}%)').join(', ');
+      });
+    } catch (error) {
+      if (mounted) setState(() => _scanStatus = 'Detection failed: \u0024error');
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -452,14 +483,28 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
                       child: Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.58), borderRadius: BorderRadius.circular(14)),
-                        child: const Text(
-                          'Move your MacBook or place the item in front of the camera. Live AI matching is the next step.',
+                        child: Text(
+                          _scanStatus ?? 'Place an object in view, then tap Scan for objects.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white, fontSize: 12),
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
                         ),
                       ),
                     ),
                   ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _cameraController == null || _scanning ? null : _scanForObjects,
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB8D9C5), foregroundColor: const Color(0xFF10251C), padding: const EdgeInsets.symmetric(vertical: 15)),
+                  icon: _scanning
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.center_focus_strong),
+                  label: Text(_scanning ? 'Scanning…' : 'Scan for objects'),
                 ),
               ),
             ),
