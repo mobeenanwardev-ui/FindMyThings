@@ -59,7 +59,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _load() async {
     try {
       _directory = await getApplicationDocumentsDirectory();
-      final file = File('\${_directory!.path}/belongings.json');
+      final file = File('${_directory!.path}/belongings.json');
       if (await file.exists()) {
         final data = jsonDecode(await file.readAsString()) as List;
         _items.addAll(data.map((e) => Belonging.fromJson(Map<String,dynamic>.from(e))));
@@ -70,14 +70,14 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _save() async {
     if (_directory == null) return;
-    await File('\${_directory!.path}/belongings.json').writeAsString(jsonEncode(_items.map((e) => e.toJson()).toList()));
+    await File('${_directory!.path}/belongings.json').writeAsString(jsonEncode(_items.map((e) => e.toJson()).toList()));
   }
 
   Future<String> _copyPhoto(XFile photo) async {
-    final folder = Directory('\${_directory!.path}/belonging_photos');
+    final folder = Directory('${_directory!.path}/belonging_photos');
     if (!await folder.exists()) await folder.create(recursive: true);
     final ext = photo.path.contains('.') ? photo.path.split('.').last : 'jpg';
-    final file = File('\${folder.path}/\${DateTime.now().microsecondsSinceEpoch}.$ext');
+    final file = File('${folder.path}/${DateTime.now().microsecondsSinceEpoch}.$ext');
     await File(photo.path).copy(file.path);
     return file.path;
   }
@@ -102,13 +102,13 @@ class _HomePageState extends State<HomePage> {
       else { final i = _items.indexWhere((x) => x.id == item.id); if (i >= 0) _items[i] = updated; }
     });
     await _save();
-    if (mounted) _toast(item == null ? 'Saved \${updated.name}' : 'Updated \${updated.name}');
+    if (mounted) _toast(item == null ? 'Saved ${updated.name}' : 'Updated ${updated.name}');
   }
 
   Future<void> _delete(Belonging item) async {
     final yes = await showDialog<bool>(context: context, builder: (c) => AlertDialog(
       title: const Text('Delete this thing?'),
-      content: Text('Remove "\${item.name}" and its photo from this device?'),
+      content: Text('Remove "${item.name}" and its photo from this device?'),
       actions: [
         TextButton(onPressed: () => Navigator.pop(c,false), child: const Text('Keep it')),
         FilledButton(onPressed: () => Navigator.pop(c,true), child: const Text('Delete')),
@@ -128,7 +128,7 @@ class _HomePageState extends State<HomePage> {
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('Ready to find it?', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: green)),
         const SizedBox(height: 8),
-        Text('You selected \${item.name}. Your reference photo is saved. The offline camera and AI matching engine still need to be connected.',
+        Text('You selected ${item.name}. Your reference photo is saved. The offline camera and AI matching engine still need to be connected.',
           style: const TextStyle(color: muted, height: 1.5)),
         const SizedBox(height: 18),
         SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(c), child: const Text('Got it'))),
@@ -164,7 +164,7 @@ class _HomePageState extends State<HomePage> {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const Text('YOUR LITTLE INVENTORY',style: TextStyle(color: Color(0xFFC9D9CE),fontSize:10,fontWeight:FontWeight.w800,letterSpacing:1.2)),
             const SizedBox(height:8),
-            Text('\${_items.length} \${_items.length == 1 ? 'thing' : 'things'} saved',style: const TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w800)),
+            Text('${_items.length} ${_items.length == 1 ? 'thing' : 'things'} saved',style: const TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w800)),
             const Text('Saved privately on this device.',style:TextStyle(color:Color(0xFFE1EAE3),fontSize:12)),
           ])),
           const Icon(Icons.inventory_2_outlined,size:42,color:Color(0xFFE1EAE3)),
@@ -219,7 +219,7 @@ class _HomePageState extends State<HomePage> {
     const _Setting(icon:Icons.lock_outline,title:'Private by design',subtitle:'No account or cloud upload is used by this inventory.'),
     const _Setting(icon:Icons.photo_library_outlined,title:'Your photos',subtitle:'Reference photos are copied into the app’s private storage.'),
     const _Setting(icon:Icons.center_focus_strong,title:'Camera finder',subtitle:'Offline AI matching is the next feature to integrate.'),
-    Text('\${_items.length} saved items',style:const TextStyle(color:muted)),
+    Text('${_items.length} saved items',style:const TextStyle(color:muted)),
   ]);
 }
 
