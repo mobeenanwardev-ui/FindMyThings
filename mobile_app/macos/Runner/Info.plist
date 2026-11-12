@@ -4,6 +4,8 @@
 <dict>
 	<key>NSCameraUsageDescription</key>
 	<string>FindMyThings uses your camera to help locate your belongings.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>FindMyThings uses audio input only if needed by the camera capture session.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
