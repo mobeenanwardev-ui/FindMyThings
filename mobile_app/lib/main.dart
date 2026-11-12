@@ -380,6 +380,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
         throw StateError('The camera did not return an image.');
       }
       final directory = await getTemporaryDirectory();
+      await directory.create(recursive: true);
       final imageFile = File('${directory.path}/findmythings_scan.jpg');
       await imageFile.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
