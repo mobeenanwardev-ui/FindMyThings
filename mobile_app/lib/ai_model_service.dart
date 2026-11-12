@@ -95,7 +95,7 @@ class AiModelService {
             bestClass = c;
           }
         }
-        if (bestScore < 0.30) continue;
+        if (bestScore < 0.20) continue;
 
         detections.add(ObjectDetection(
           label: _labels[bestClass],
