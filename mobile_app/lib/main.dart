@@ -385,13 +385,21 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       await imageFile.writeAsBytes(bytes, flush: true);
       if (!mounted) return;
       setState(() => _scanStatus = 'Running YOLO object detection…');
-      final detections = await AiModelService().detectObjects(imageFile.path);
+      final ai = AiModelService();
+      final detections = await ai.detectObjects(imageFile.path);
+      var result = detections.isEmpty
+          ? 'YOLO: no COCO objects detected.'
+          : 'YOLO: ' + detections.map((d) => '${d.label} (${(d.confidence * 100).round()}%)').join(', ');
+      final referencePath = widget.item.photo;
+      if (referencePath != null && await File(referencePath).exists()) {
+        if (mounted) setState(() => _scanStatus = '$result\\nComparing saved photo with CLIP…');
+        final match = await ai.compareImages(referencePath, imageFile.path);
+        result += '\\nCLIP whole-image similarity: ${(match.similarity * 100).toStringAsFixed(1)}%';
+      } else {
+        result += '\\nAdd a reference photo to compare this item.';
+      }
       if (!mounted) return;
-      setState(() {
-        _scanStatus = detections.isEmpty
-            ? 'No familiar objects detected. Try better lighting or move closer.'
-            : 'Detected: ' + detections.map((d) => '${d.label} (${(d.confidence * 100).round()}%)').join(', ');
-      });
+      setState(() => _scanStatus = result);
     } catch (error) {
       if (mounted) setState(() => _scanStatus = 'Detection failed: $error');
     } finally {
