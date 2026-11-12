@@ -83,7 +83,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text('Ready when you are', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w700, color: forest)),
           const SizedBox(height: 8),
-          Text('Next, we’ll use your camera to look for \${item.name}. Camera matching is the next development step.',
+          Text('Next, we’ll use your camera to look for ${item.name}. Camera matching is the next development step.',
             style: const TextStyle(fontSize: 15, height: 1.5, color: Color(0xFF656B65))),
           const SizedBox(height: 20),
           SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Got it'))),
@@ -124,7 +124,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('YOUR LITTLE INVENTORY', style: TextStyle(color: Color(0xFFB8C9BD), fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
                   const SizedBox(height: 9),
-                  Text('\${_items.length} things saved', style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
+                  Text('${_items.length} things saved', style: const TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w700, letterSpacing: -0.5)),
                   const SizedBox(height: 5),
                   const Text('All in one place, right on your phone.', style: TextStyle(color: Color(0xFFD0DDD4), fontSize: 11)),
                 ])),
