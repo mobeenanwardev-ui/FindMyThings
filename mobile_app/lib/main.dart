@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:camera_macos/camera_macos.dart';
+import 'ai_model_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -120,6 +121,45 @@ class _HomePageState extends State<HomePage> {
     if (item.photo != null) { try { await File(item.photo!).delete(); } catch (_) {} }
   }
 
+
+  Future<void> _verifyAiModels() async {
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(children: [
+          CircularProgressIndicator(),
+          SizedBox(width: 16),
+          Expanded(child: Text('Checking offline AI models…')),
+        ]),
+      ),
+    );
+    try {
+      final details = await AiModelService().verifyInstalledModels();
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('AI models are ready'),
+          content: SingleChildScrollView(child: SelectableText(details)),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Done'))],
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('AI models not ready yet'),
+          content: SelectableText(error.toString()),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        ),
+      );
+    }
+  }
+
   void _toast(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text), behavior: SnackBarBehavior.floating));
 
   void _find(Belonging item) {
@@ -225,6 +265,8 @@ class _HomePageState extends State<HomePage> {
     const _Setting(icon:Icons.lock_outline,title:'Private by design',subtitle:'No account or cloud upload is used by this inventory.'),
     const _Setting(icon:Icons.photo_library_outlined,title:'Your photos',subtitle:'Reference photos are copied into the app’s private storage.'),
     const _Setting(icon:Icons.center_focus_strong,title:'Camera finder',subtitle:'Offline AI matching is the next feature to integrate.'),
+    const SizedBox(height: 8),
+    FilledButton.icon(onPressed: _verifyAiModels, icon: const Icon(Icons.memory), label: const Text('Check offline AI models')),
     Text('${_items.length} saved items',style:const TextStyle(color:muted)),
   ]);
 }
