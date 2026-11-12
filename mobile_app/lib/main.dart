@@ -350,7 +350,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
                     const CircleAvatar(
                       radius: 27,
                       backgroundColor: Color(0xFFE8EEE8),
-                      child: Icon(Icons.inventory_2_outlined, color: forest),
+                      child: Icon(Icons.inventory_2_outlined, color: green),
                     ),
                   const SizedBox(width: 12),
                   Expanded(
