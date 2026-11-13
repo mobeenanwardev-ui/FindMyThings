@@ -590,7 +590,9 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
           _trackingEnabled = false;
           debugPrint('Native Vision tracker is not registered.');
         }
-      } else if (stableDetections.isEmpty) {
+      } else if (_trackingEnabled) {
+        // The periodic detector did not reconfirm the target. Stop trusting
+        // the old track and let the next scheduled CLIP pass reacquire it.
         _trackingEnabled = false;
         _trackingFrames = 0;
       }
