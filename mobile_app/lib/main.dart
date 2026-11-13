@@ -371,6 +371,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   List<ObjectDetection> _detections = [];
   bool _processingFrame = false;
   bool _streamStarted = false;
+  final AiModelService _ai = AiModelService();
   DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<void> _startAutomaticScanning(CameraMacOSController controller) async {
@@ -380,7 +381,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       await controller.startImageStream((CameraImageData? frame) {
         if (frame == null || !mounted || _processingFrame) return;
         final now = DateTime.now();
-        if (now.difference(_lastInference).inMilliseconds < 900) return;
+        if (now.difference(_lastInference).inMilliseconds < 1800) return;
         _lastInference = now;
         _processFrame(frame);
       });
@@ -413,13 +414,13 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       }
       final directory = await getTemporaryDirectory();
       await directory.create(recursive: true);
+      final modelInput = img.copyResize(converted, width: 640, height: 640);
       final imageFile = File('${directory.path}/findmythings_live_frame.jpg');
-      await imageFile.writeAsBytes(img.encodeJpg(converted, quality: 82), flush: true);
-      final ai = AiModelService();
-      var results = await ai.detectObjects(imageFile.path);
+      await imageFile.writeAsBytes(img.encodeJpg(modelInput, quality: 65), flush: true);
+      var results = await _ai.detectObjects(imageFile.path);
       final referencePath = widget.item.photo;
       if (results.isNotEmpty && referencePath != null && await File(referencePath).exists()) {
-        results = await ai.matchDetectedRegions(
+        results = await _ai.matchDetectedRegions(
           referencePath: referencePath,
           framePath: imageFile.path,
           detections: results,
@@ -448,6 +449,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
     if (controller != null && _streamStarted) {
       controller.stopImageStream();
     }
+    _ai.dispose();
     super.dispose();
   }
 
