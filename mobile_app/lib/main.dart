@@ -68,14 +68,23 @@ class FindMyThingsApp extends StatelessWidget {
 }
 
 class Belonging {
-  const Belonging({required this.id, required this.name, required this.category, this.photo, required this.created});
+  const Belonging({required this.id, required this.name, required this.category, this.photo, this.photos = const [], required this.created});
   final String id, name, category;
   final String? photo;
+  final List<String> photos;
   final DateTime created;
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'category': category, 'photo': photo, 'created': created.toIso8601String()};
-  factory Belonging.fromJson(Map<String, dynamic> j) => Belonging(
-    id: j['id'], name: j['name'], category: j['category'] ?? 'Other',
-    photo: j['photo'], created: DateTime.tryParse(j['created'] ?? '') ?? DateTime.now());
+  List<String> get referencePhotos => photos.isNotEmpty ? photos : (photo == null ? const [] : [photo!]);
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'category': category, 'photo': photo ?? (photos.isEmpty ? null : photos.first), 'photos': referencePhotos, 'created': created.toIso8601String()};
+  factory Belonging.fromJson(Map<String, dynamic> j) {
+    final savedPhotos = (j['photos'] as List?)?.whereType<String>().toList() ?? <String>[];
+    final legacyPhoto = j['photo'] as String?;
+    if (savedPhotos.isEmpty && legacyPhoto != null) savedPhotos.add(legacyPhoto);
+    return Belonging(
+      id: j['id'], name: j['name'], category: j['category'] ?? 'Other',
+      photo: legacyPhoto ?? (savedPhotos.isEmpty ? null : savedPhotos.first),
+      photos: savedPhotos,
+      created: DateTime.tryParse(j['created'] ?? '') ?? DateTime.now());
+  }
 }
 
 class HomePage extends StatefulWidget {
@@ -132,15 +141,14 @@ class _HomePageState extends State<HomePage> {
       context: context, barrierDismissible: false,
       builder: (_) => ItemDialog(picker: _picker, item: item));
     if (!mounted || result == null) return;
-    String? path = item?.photo;
-    if (result.removePhoto) path = null;
-    if (result.photo != null) {
-      try { path = await _copyPhoto(result.photo!); }
-      catch (_) { _toast('Could not save that photo. Please try again.'); return; }
-    }
+    final savedPaths = result.removePhotos ? <String>[] : List<String>.from(item?.referencePhotos ?? const <String>[]);
+    try {
+      for (final photo in result.photos) { savedPaths.add(await _copyPhoto(photo)); }
+    } catch (_) { _toast('Could not save those photos. Please try again.'); return; }
     final updated = Belonging(
       id: item?.id ?? DateTime.now().microsecondsSinceEpoch.toString(),
-      name: result.name, category: result.category, photo: path,
+      name: result.name, category: result.category,
+      photo: savedPaths.isEmpty ? null : savedPaths.first, photos: savedPaths,
       created: item?.created ?? DateTime.now());
     setState(() {
       if (item == null) { _items.insert(0, updated); }
@@ -161,7 +169,7 @@ class _HomePageState extends State<HomePage> {
     if (yes != true) return;
     setState(() => _items.removeWhere((x) => x.id == item.id));
     await _save();
-    if (item.photo != null) { try { await File(item.photo!).delete(); } catch (_) {} }
+    for (final path in item.referencePhotos) { try { await File(path).delete(); } catch (_) {} }
   }
 
 
@@ -330,8 +338,8 @@ class _Setting extends StatelessWidget {
 }
 
 class _FormResult {
-  const _FormResult({required this.name,required this.category,this.photo,this.removePhoto=false});
-  final String name,category; final XFile? photo; final bool removePhoto;
+  const _FormResult({required this.name,required this.category,this.photos=const [],this.removePhotos=false});
+  final String name,category; final List<XFile> photos; final bool removePhotos;
 }
 
 class ItemDialog extends StatefulWidget {
@@ -342,13 +350,15 @@ class ItemDialog extends StatefulWidget {
 
 class _ItemDialogState extends State<ItemDialog> {
   late final TextEditingController _name,_category;
-  XFile? _photo; bool _remove=false,_busy=false; String? _error;
+  final List<XFile> _newPhotos = [];
+  bool _removeAll=false,_busy=false; String? _error;
+  List<String> get _existingPhotos => _removeAll ? const [] : (widget.item?.referencePhotos ?? const []);
   @override void initState(){super.initState();_name=TextEditingController(text:widget.item?.name??'');_category=TextEditingController(text:widget.item?.category??'My belongings');}
   @override void dispose(){_name.dispose();_category.dispose();super.dispose();}
 
-  Future<void> _pick(ImageSource source) async {
+  Future<void> _pick() async {
     setState(()=>_busy=true);
-    try { final p=await widget.picker.pickImage(source:source,imageQuality:88,maxWidth:1800); if(p!=null&&mounted)setState(()=>_photo=p); }
+    try {final picked=await widget.picker.pickMultiImage(imageQuality:88,maxWidth:1800);if(picked.isNotEmpty&&mounted)setState(()=>_newPhotos.addAll(picked));}
     catch(e){debugPrint('Picker error: $e');if(mounted)setState(()=>_error='Could not open photos. Check permissions and try again.');}
     finally{if(mounted)setState(()=>_busy=false);}
   }
@@ -356,44 +366,49 @@ class _ItemDialogState extends State<ItemDialog> {
   Future<void> _photoMenu() async {
     final source=await showModalBottomSheet<ImageSource>(context:context,showDragHandle:true,backgroundColor:Colors.white,
       builder:(c)=>SafeArea(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        const Padding(padding:EdgeInsets.all(12),child:Text('Add a photo',style:TextStyle(fontSize:20,fontWeight:FontWeight.w800))),
-        ListTile(leading:const Icon(Icons.photo_library_outlined),title:const Text('Choose from photos'),onTap:()=>Navigator.pop(c,ImageSource.gallery)),
+        const Padding(padding:EdgeInsets.all(12),child:Text('Add reference photos',style:TextStyle(fontSize:20,fontWeight:FontWeight.w800))),
+        ListTile(leading:const Icon(Icons.photo_library_outlined),title:const Text('Choose multiple photos'),onTap:()=>Navigator.pop(c,ImageSource.gallery)),
         if(!Platform.isMacOS) ListTile(leading:const Icon(Icons.camera_alt_outlined),title:const Text('Take a photo'),onTap:()=>Navigator.pop(c,ImageSource.camera)),
         const SizedBox(height:12),
       ])));
-    if(source!=null)await _pick(source);
+    if(source==ImageSource.gallery) await _pick();
+    if(source==ImageSource.camera) {
+      setState(()=>_busy=true);
+      try {final p=await widget.picker.pickImage(source:ImageSource.camera,imageQuality:88,maxWidth:1800);if(p!=null&&mounted)setState(()=>_newPhotos.add(p));}
+      catch(e){if(mounted)setState(()=>_error='Could not open camera. Check permissions and try again.');}
+      finally{if(mounted)setState(()=>_busy=false);}
+    }
   }
 
   void _submit(){
     final n=_name.text.trim();
     if(n.isEmpty){setState(()=>_error='Give your thing a name first.');return;}
-    Navigator.pop(context,_FormResult(name:n,category:_category.text.trim().isEmpty?'My belongings':_category.text.trim(),photo:_photo,removePhoto:_remove));
+    Navigator.pop(context,_FormResult(name:n,category:_category.text.trim().isEmpty?'My belongings':_category.text.trim(),photos:_newPhotos,removePhotos:_removeAll));
   }
 
   @override Widget build(BuildContext context){
-    final old=widget.item?.photo;
-    final oldExists=old!=null&&File(old).existsSync()&&!_remove&&_photo==null;
+    final existing=_existingPhotos.where((p)=>File(p).existsSync()).toList();
+    final total=existing.length+_newPhotos.length;
     return AlertDialog(backgroundColor:const Color(0xFFFFFEFA),
       title:Text(widget.item==null?'Add a thing':'Edit your thing',style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800)),
       content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
         TextField(controller:_name,autofocus:true,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'What is it called?',hintText:'For example: Blue backpack')),
         const SizedBox(height:10),
         TextField(controller:_category,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Category',hintText:'For example: Everyday items')),
-        const SizedBox(height:14),
-        ClipRRect(borderRadius:BorderRadius.circular(14),child:SizedBox(height:140,width:double.infinity,
-          child:_photo!=null?Image.file(File(_photo!.path),fit:BoxFit.cover):oldExists?Image.file(File(old),fit:BoxFit.cover):
-            Container(color:const Color(0xFFE8EEE8),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[
-              Icon(Icons.add_a_photo_outlined,size:34,color:green),SizedBox(height:5),Text('A photo helps you recognise it',style:TextStyle(color:muted,fontSize:12)),
-            ])))),
-        const SizedBox(height:8),
-        SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.photo_library_outlined),label:Text(_busy?'Opening…':(_photo!=null||oldExists)?'Change photo':'Add a photo'))),
-        if(_photo!=null||oldExists)TextButton.icon(onPressed:()=>setState(()=>_remove=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove photo')),
+        const SizedBox(height:16),
+        Row(children:[const Expanded(child:Text('Reference photos',style:TextStyle(fontWeight:FontWeight.w800))),Text('$total added',style:const TextStyle(color:muted,fontSize:12))]),
+        const SizedBox(height:9),
+        if(total==0) Container(height:112,width:double.infinity,decoration:BoxDecoration(color:const Color(0xFFE8EEE8),borderRadius:BorderRadius.circular(15)),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.photo_library_outlined,size:30,color:green),SizedBox(height:6),Text('Add a few angles for better matching',style:TextStyle(color:muted,fontSize:12))]))
+        else SizedBox(height:104,child:ListView(scrollDirection:Axis.horizontal,children:[
+          ...existing.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p),width:104,height:104,fit:BoxFit.cover)))),
+          ..._newPhotos.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p.path),width:104,height:104,fit:BoxFit.cover)))),
+        ])),
+        const SizedBox(height:10),
+        SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':'Add photos'))),
+        if(total>0)TextButton.icon(onPressed:()=>setState(()=>_removeAll=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove all reference photos')),
         if(_error!=null)Padding(padding:const EdgeInsets.only(top:7),child:Text(_error!,style:const TextStyle(color:Colors.red,fontSize:12))),
       ])),
-      actions:[
-        TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
-        FilledButton(onPressed:_busy?null:_submit,child:const Text('Save')),
-      ]);
+      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),FilledButton(onPressed:_busy?null:_submit,child:const Text('Save'))]);
   }
 }
 
@@ -536,15 +551,15 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       var results = await _ai.detectObjects(imageFile.path);
       _lastDetectionDuration = DateTime.now().difference(detectionStartedAt);
       _inferenceCount++;
-      final referencePath = widget.item.photo;
+      final referencePaths = widget.item.referencePhotos;
       // CLIP is deliberately less frequent than YOLO. It compares the
       // highest-confidence proposals only, while the preview stays live.
       if (results.isNotEmpty &&
           (_trackingEnabled || _inferenceCount % 4 == 0) &&
-          referencePath != null &&
-          await File(referencePath).exists()) {
+          referencePaths.isNotEmpty &&
+          referencePaths.any((path) => File(path).existsSync())) {
         final scored = await _ai.matchDetectedRegions(
-          referencePath: referencePath,
+          referencePaths: referencePaths,
           framePath: imageFile.path,
           detections: results.take(1).toList(),
         );
