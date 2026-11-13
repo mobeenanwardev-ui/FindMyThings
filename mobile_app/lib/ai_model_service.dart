@@ -151,8 +151,30 @@ class AiModelService {
   Future<List<double>> _clipEmbedding(MLModel model, String path) async {
     final file = File(path);
     if (!await file.exists()) throw FileSystemException('Image not found', path);
-    final decoded = img.decodeImage(await file.readAsBytes());
-    if (decoded == null) throw FormatException('Could not decode image: $path');
+    var imageBytes = await file.readAsBytes();
+    var decoded = img.decodeImage(imageBytes);
+
+    // Photos selected on macOS can be HEIC even when the picker gives
+    // the file a .jpg-looking path. The Dart image package cannot decode
+    // HEIC, so use the built-in macOS sips converter as a fallback.
+    if (decoded == null && Platform.isMacOS) {
+      final convertedPath = '${file.parent.path}/clip_input_${file.uri.pathSegments.last.hashCode}.jpg';
+      final conversion = await Process.run(
+        'sips',
+        ['-s', 'format', 'jpeg', path, '--out', convertedPath],
+      );
+      final convertedFile = File(convertedPath);
+      if (conversion.exitCode == 0 && await convertedFile.exists()) {
+        imageBytes = await convertedFile.readAsBytes();
+        decoded = img.decodeImage(imageBytes);
+      }
+    }
+
+    if (decoded == null) {
+      throw FormatException(
+        'Unsupported image format for CLIP: $path. Please re-add the reference photo as JPEG or PNG.',
+      );
+    }
     final resized = img.copyResize(decoded, width: 224, height: 224);
     const mean = [0.48145466, 0.4578275, 0.40821073];
     const std = [0.26862954, 0.26130258, 0.27577711];
