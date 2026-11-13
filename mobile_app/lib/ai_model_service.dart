@@ -30,6 +30,40 @@ class ImageMatch {
 }
 
 class AiModelService {
+  MLModel? _yoloModel;
+  MLModel? _clipModel;
+  String? _cachedReferencePath;
+  List<double>? _cachedReferenceEmbedding;
+
+  Future<MLModel> _loadYolo() async {
+    if (_yoloModel != null) return _yoloModel!;
+    if (!await CoreML.isSupported()) throw StateError('Core ML requires macOS 15 or later.');
+    _yoloModel = await MLModel.loadAsset(
+      yoloAsset,
+      configuration: const MLModelConfiguration(computeUnits: MLComputeUnits.cpuAndNeuralEngine),
+    );
+    return _yoloModel!;
+  }
+
+  Future<MLModel> _loadClip() async {
+    if (_clipModel != null) return _clipModel!;
+    if (!await CoreML.isSupported()) throw StateError('Core ML requires macOS 15 or later.');
+    _clipModel = await MLModel.loadAsset(
+      clipAsset,
+      configuration: const MLModelConfiguration(computeUnits: MLComputeUnits.cpuAndNeuralEngine),
+    );
+    return _clipModel!;
+  }
+
+  Future<void> dispose() async {
+    await _yoloModel?.dispose();
+    await _clipModel?.dispose();
+    _yoloModel = null;
+    _clipModel = null;
+    _cachedReferencePath = null;
+    _cachedReferenceEmbedding = null;
+  }
+
   static const yoloAsset = 'assets/models/yolov8n.mlpackage';
   static const clipAsset = 'assets/models/clip_image_encoder.mlpackage';
 
@@ -74,55 +108,36 @@ class AiModelService {
   }
 
   Future<List<ObjectDetection>> detectObjects(String imagePath) async {
-    if (!await CoreML.isSupported()) {
-      throw StateError('Core ML requires macOS 15 or later.');
+    final model = await _loadYolo();
+    final prediction = await model.predict({'image': ImageInput.file(imagePath)});
+    final output = prediction.multiArray('var_911');
+    final shape = output.shape;
+    if (shape.length != 3 || shape[1] != 84 || shape[2] != 8400) {
+      throw StateError('Unexpected YOLO output shape: $shape');
     }
-    MLModel? model;
-    try {
-      model = await MLModel.loadAsset(
-        yoloAsset,
-        configuration: const MLModelConfiguration(
-          computeUnits: MLComputeUnits.cpuAndNeuralEngine,
-        ),
-      );
-      final prediction = await model.predict({
-        'image': ImageInput.file(imagePath),
-      });
-      final output = prediction.multiArray('var_911');
-      final shape = output.shape;
-      if (shape.length != 3 || shape[1] != 84 || shape[2] != 8400) {
-        throw StateError('Unexpected YOLO output shape: $shape');
+    final values = output.toDoubleList();
+    const candidates = 8400;
+    final detections = <ObjectDetection>[];
+    for (var i = 0; i < candidates; i++) {
+      var bestClass = 0;
+      var bestScore = 0.0;
+      for (var c = 0; c < 80; c++) {
+        final score = values[(4 + c) * candidates + i];
+        if (score > bestScore) { bestScore = score; bestClass = c; }
       }
-      final values = output.toDoubleList();
-      const candidates = 8400;
-      final detections = <ObjectDetection>[];
-      for (var i = 0; i < candidates; i++) {
-        var bestClass = 0;
-        var bestScore = 0.0;
-        for (var c = 0; c < 80; c++) {
-          final score = values[(4 + c) * candidates + i];
-          if (score > bestScore) {
-            bestScore = score;
-            bestClass = c;
-          }
-        }
-        if (bestScore < 0.20) continue;
-        detections.add(ObjectDetection(
-          label: _labels[bestClass],
-          confidence: bestScore,
-          centerX: values[i] / 640.0,
-          centerY: values[candidates + i] / 640.0,
-          width: values[2 * candidates + i] / 640.0,
-          height: values[3 * candidates + i] / 640.0,
-        ));
-      }
-      detections.sort((a, b) => b.confidence.compareTo(a.confidence));
-      return detections.take(5).toList();
-    } finally {
-      await model?.dispose();
+      if (bestScore < 0.25) continue;
+      detections.add(ObjectDetection(
+        label: _labels[bestClass],
+        confidence: bestScore,
+        centerX: values[i] / 640.0,
+        centerY: values[candidates + i] / 640.0,
+        width: values[2 * candidates + i] / 640.0,
+        height: values[3 * candidates + i] / 640.0,
+      ));
     }
+    detections.sort((a, b) => b.confidence.compareTo(a.confidence));
+    return detections.take(3).toList();
   }
-
 
   Future<List<ObjectDetection>> matchDetectedRegions({
     required String referencePath,
@@ -131,56 +146,37 @@ class AiModelService {
     double matchThreshold = 0.72,
   }) async {
     if (detections.isEmpty) return detections;
-    MLModel? model;
-    try {
-      model = await MLModel.loadAsset(
-        clipAsset,
-        configuration: const MLModelConfiguration(
-          computeUnits: MLComputeUnits.cpuAndNeuralEngine,
-        ),
-      );
-      final referenceEmbedding = await _clipEmbedding(model, referencePath);
-      final frameBytes = await File(framePath).readAsBytes();
-      final frame = img.decodeImage(frameBytes);
-      if (frame == null) throw FormatException('Could not decode camera frame for crop matching.');
-
-      final matched = <ObjectDetection>[];
-      for (final detection in detections.take(5)) {
-        final left = ((detection.centerX - detection.width / 2) * frame.width)
-            .round().clamp(0, frame.width - 1);
-        final top = ((detection.centerY - detection.height / 2) * frame.height)
-            .round().clamp(0, frame.height - 1);
-        final cropWidth = (detection.width * frame.width).round()
-            .clamp(1, frame.width - left);
-        final cropHeight = (detection.height * frame.height).round()
-            .clamp(1, frame.height - top);
-        final crop = img.copyCrop(
-          frame,
-          x: left,
-          y: top,
-          width: cropWidth,
-          height: cropHeight,
-        );
-        final cropPath = '${Directory.systemTemp.path}/fmt_crop_${detection.hashCode}.jpg';
-        await File(cropPath).writeAsBytes(img.encodeJpg(crop, quality: 88), flush: true);
-        final candidateEmbedding = await _clipEmbedding(model, cropPath);
-        final similarity = _cosineSimilarity(referenceEmbedding, candidateEmbedding);
+    final model = await _loadClip();
+    if (_cachedReferencePath != referencePath || _cachedReferenceEmbedding == null) {
+      _cachedReferenceEmbedding = await _clipEmbedding(model, referencePath);
+      _cachedReferencePath = referencePath;
+    }
+    final referenceEmbedding = _cachedReferenceEmbedding!;
+    final frame = img.decodeImage(await File(framePath).readAsBytes());
+    if (frame == null) throw FormatException('Could not decode camera frame for crop matching.');
+    final matched = <ObjectDetection>[];
+    for (final detection in detections.take(2)) {
+      final left = ((detection.centerX - detection.width / 2) * frame.width).round().clamp(0, frame.width - 1);
+      final top = ((detection.centerY - detection.height / 2) * frame.height).round().clamp(0, frame.height - 1);
+      final cropWidth = (detection.width * frame.width).round().clamp(1, frame.width - left);
+      final cropHeight = (detection.height * frame.height).round().clamp(1, frame.height - top);
+      final crop = img.copyCrop(frame, x: left, y: top, width: cropWidth, height: cropHeight);
+      final cropPath = '${Directory.systemTemp.path}/fmt_crop_${detection.hashCode}.jpg';
+      await File(cropPath).writeAsBytes(img.encodeJpg(crop, quality: 75), flush: true);
+      try {
+        final embedding = await _clipEmbedding(model, cropPath);
+        final similarity = _cosineSimilarity(referenceEmbedding, embedding);
         matched.add(ObjectDetection(
-          label: detection.label,
-          confidence: detection.confidence,
-          centerX: detection.centerX,
-          centerY: detection.centerY,
-          width: detection.width,
-          height: detection.height,
-          similarity: similarity,
-          isMatch: similarity >= matchThreshold,
+          label: detection.label, confidence: detection.confidence,
+          centerX: detection.centerX, centerY: detection.centerY,
+          width: detection.width, height: detection.height,
+          similarity: similarity, isMatch: similarity >= matchThreshold,
         ));
+      } finally {
         try { await File(cropPath).delete(); } catch (_) {}
       }
-      return matched;
-    } finally {
-      await model?.dispose();
     }
+    return matched;
   }
 
   double _cosineSimilarity(List<double> a, List<double> b) {
