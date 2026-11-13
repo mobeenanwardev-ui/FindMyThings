@@ -511,6 +511,9 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
         }
         _trackingEnabled = false;
         _trackingFrames = 0;
+        _inferenceCount = 3; // Force CLIP to check the next detector result.
+        _lastConfirmedMatch = null;
+        _lastConfirmedMatchAt = null;
       } else if (_trackingEnabled) {
         // Run the detector again after a short tracking burst to correct drift.
         _trackingFrames = 0;
@@ -569,16 +572,20 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       final confirmedMatch = matchingDetections.isEmpty ? null : matchingDetections.first;
       if (confirmedMatch != null && Platform.isMacOS) {
         try {
+          final boxLeft =
+              (confirmedMatch.centerX - confirmedMatch.width / 2).clamp(0.0, 1.0);
+          final boxTop =
+              (confirmedMatch.centerY - confirmedMatch.height / 2).clamp(0.0, 1.0);
+          final boxWidth = math.min(confirmedMatch.width, 1.0 - boxLeft).clamp(0.001, 1.0);
+          final boxHeight = math.min(confirmedMatch.height, 1.0 - boxTop).clamp(0.001, 1.0);
           await _trackerChannel.invokeMethod<void>(
             'startTracking',
             <String, Object>{
               'image': encodedBytes,
-              'x': (confirmedMatch.centerX - confirmedMatch.width / 2)
-                  .clamp(0.0, 1.0),
-              'y': (confirmedMatch.centerY - confirmedMatch.height / 2)
-                  .clamp(0.0, 1.0),
-              'width': confirmedMatch.width.clamp(0.001, 1.0),
-              'height': confirmedMatch.height.clamp(0.001, 1.0),
+              'x': boxLeft,
+              'y': boxTop,
+              'width': boxWidth,
+              'height': boxHeight,
             },
           );
           _trackingEnabled = true;
@@ -595,6 +602,8 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
         // the old track and let the next scheduled CLIP pass reacquire it.
         _trackingEnabled = false;
         _trackingFrames = 0;
+        _lastConfirmedMatch = null;
+        _lastConfirmedMatchAt = null;
       }
       final matches = stableDetections.where((d) => d.isMatch).length;
       setState(() {
