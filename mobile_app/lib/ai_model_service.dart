@@ -135,8 +135,33 @@ class AiModelService {
         height: values[3 * candidates + i] / 640.0,
       ));
     }
+    // Class-aware non-maximum suppression removes duplicate and oversized
+    // overlapping proposals around the same physical object.
     detections.sort((a, b) => b.confidence.compareTo(a.confidence));
-    return detections.take(3).toList();
+    final selected = <ObjectDetection>[];
+    for (final candidate in detections) {
+      final overlaps = selected.any((kept) =>
+          kept.label == candidate.label && _intersectionOverUnion(kept, candidate) > 0.40);
+      if (!overlaps) selected.add(candidate);
+      if (selected.length == 5) break;
+    }
+    return selected;
+  }
+
+  double _intersectionOverUnion(ObjectDetection a, ObjectDetection b) {
+    final aLeft = a.centerX - a.width / 2;
+    final aTop = a.centerY - a.height / 2;
+    final aRight = a.centerX + a.width / 2;
+    final aBottom = a.centerY + a.height / 2;
+    final bLeft = b.centerX - b.width / 2;
+    final bTop = b.centerY - b.height / 2;
+    final bRight = b.centerX + b.width / 2;
+    final bBottom = b.centerY + b.height / 2;
+    final intersectionWidth = math.max(0.0, math.min(aRight, bRight) - math.max(aLeft, bLeft));
+    final intersectionHeight = math.max(0.0, math.min(aBottom, bBottom) - math.max(aTop, bTop));
+    final intersection = intersectionWidth * intersectionHeight;
+    final union = a.width * a.height + b.width * b.height - intersection;
+    return union <= 0 ? 0 : intersection / union;
   }
 
   Future<List<ObjectDetection>> matchDetectedRegions({
