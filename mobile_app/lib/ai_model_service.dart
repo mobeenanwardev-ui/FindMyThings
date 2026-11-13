@@ -19,8 +19,11 @@ class ObjectDetection {
   final double confidence;
   final double centerX;
   final double centerY;
+  final double width;
+  final double height;
+  final double? similarity;
+  final bool isMatch;
 }
-
 class ImageMatch {
   const ImageMatch({required this.similarity});
   final double similarity;
