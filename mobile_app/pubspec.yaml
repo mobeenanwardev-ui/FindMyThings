@@ -36,6 +36,7 @@ dependencies:
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   image_picker: ^1.2.4
+  native_image_picker_macos: ^0.0.2
   shared_preferences: ^2.5.6
   path_provider: ^2.1.6
   camera_macos: ^0.1.1
