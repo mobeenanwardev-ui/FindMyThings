@@ -9,6 +9,8 @@ class ObjectDetection {
     required this.confidence,
     required this.centerX,
     required this.centerY,
+    required this.width,
+    required this.height,
   });
 
   final String label;
@@ -103,8 +105,10 @@ class AiModelService {
         detections.add(ObjectDetection(
           label: _labels[bestClass],
           confidence: bestScore,
-          centerX: values[i],
-          centerY: values[candidates + i],
+          centerX: values[i] / 640.0,
+          centerY: values[candidates + i] / 640.0,
+          width: values[2 * candidates + i] / 640.0,
+          height: values[3 * candidates + i] / 640.0,
         ));
       }
       detections.sort((a, b) => b.confidence.compareTo(a.confidence));
