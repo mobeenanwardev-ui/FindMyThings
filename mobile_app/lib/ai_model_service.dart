@@ -32,8 +32,7 @@ class ImageMatch {
 class AiModelService {
   MLModel? _yoloModel;
   MLModel? _clipModel;
-  String? _cachedReferencePath;
-  List<double>? _cachedReferenceEmbedding;
+  final Map<String, List<double>> _cachedReferenceEmbeddings = {};
 
   Future<MLModel> _loadYolo() async {
     if (_yoloModel != null) return _yoloModel!;
@@ -60,8 +59,7 @@ class AiModelService {
     await _clipModel?.dispose();
     _yoloModel = null;
     _clipModel = null;
-    _cachedReferencePath = null;
-    _cachedReferenceEmbedding = null;
+    _cachedReferenceEmbeddings.clear();
   }
 
   static const yoloAsset = 'assets/models/yolov8n.mlpackage';
@@ -165,18 +163,24 @@ class AiModelService {
   }
 
   Future<List<ObjectDetection>> matchDetectedRegions({
-    required String referencePath,
+    required List<String> referencePaths,
     required String framePath,
     required List<ObjectDetection> detections,
     double matchThreshold = 0.72,
   }) async {
-    if (detections.isEmpty) return detections;
+    if (detections.isEmpty || referencePaths.isEmpty) return detections;
     final model = await _loadClip();
-    if (_cachedReferencePath != referencePath || _cachedReferenceEmbedding == null) {
-      _cachedReferenceEmbedding = await _clipEmbedding(model, referencePath);
-      _cachedReferencePath = referencePath;
+    final referenceEmbeddings = <List<double>>[];
+    for (final path in referencePaths) {
+      if (!await File(path).exists()) continue;
+      var embedding = _cachedReferenceEmbeddings[path];
+      if (embedding == null) {
+        embedding = await _clipEmbedding(model, path);
+        _cachedReferenceEmbeddings[path] = embedding;
+      }
+      referenceEmbeddings.add(embedding);
     }
-    final referenceEmbedding = _cachedReferenceEmbedding!;
+    if (referenceEmbeddings.isEmpty) return detections;
     final frame = img.decodeImage(await File(framePath).readAsBytes());
     if (frame == null) throw FormatException('Could not decode camera frame for crop matching.');
     final matched = <ObjectDetection>[];
@@ -190,12 +194,16 @@ class AiModelService {
       await File(cropPath).writeAsBytes(img.encodeJpg(crop, quality: 75), flush: true);
       try {
         final embedding = await _clipEmbedding(model, cropPath);
-        final similarity = _cosineSimilarity(referenceEmbedding, embedding);
+        var bestSimilarity = 0.0;
+        for (final reference in referenceEmbeddings) {
+          final similarity = _cosineSimilarity(reference, embedding);
+          if (similarity > bestSimilarity) bestSimilarity = similarity;
+        }
         matched.add(ObjectDetection(
           label: detection.label, confidence: detection.confidence,
           centerX: detection.centerX, centerY: detection.centerY,
           width: detection.width, height: detection.height,
-          similarity: similarity, isMatch: similarity >= matchThreshold,
+          similarity: bestSimilarity, isMatch: bestSimilarity >= matchThreshold,
         ));
       } finally {
         try { await File(cropPath).delete(); } catch (_) {}
