@@ -415,6 +415,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   final AiModelService _ai = AiModelService();
   DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
   int _inferenceCount = 0;
+  Duration _lastDetectionDuration = Duration.zero;
   String? _frameFilePath;
   double _cameraAspectRatio = 4 / 3;
 
@@ -428,7 +429,10 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
           _cameraAspectRatio = frame.width / frame.height;
         }
         final now = DateTime.now();
-        if (now.difference(_lastInference).inMilliseconds < 2800) return;
+        // Do not add an artificial multi-second pause. The processing lock
+        // already prevents overlapping model predictions; start the next
+        // detection as soon as the previous one has completed.
+        if (now.difference(_lastInference).inMilliseconds < 250) return;
         _lastInference = now;
         _processFrame(frame);
       });
@@ -460,7 +464,9 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       final imageFile = File(_frameFilePath!);
       await imageFile.writeAsBytes(encodedBytes, flush: false);
 
+      final detectionStartedAt = DateTime.now();
       var results = await _ai.detectObjects(imageFile.path);
+      _lastDetectionDuration = DateTime.now().difference(detectionStartedAt);
       _inferenceCount++;
       final referencePath = widget.item.photo;
       // CLIP is deliberately less frequent than YOLO. It compares the
@@ -508,7 +514,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
             ? 'Scanning… no recognised objects in this frame.'
             : matches > 0
                 ? '${widget.item.name} possible match found'
-                : 'Scanning: ${cameraDetections.length} objects • comparing with saved ${widget.item.name}';
+                : 'Scanning: ${cameraDetections.length} objects • detection ${_lastDetectionDuration.inMilliseconds} ms';
       });
     } catch (error) {
       if (mounted) setState(() => _scanStatus = 'Live detection error: $error');
