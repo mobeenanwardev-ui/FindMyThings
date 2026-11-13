@@ -26,13 +26,9 @@ Uint8List _encodeCameraFrame({
   final resizedHeight = (height * scale).round().clamp(1, modelSize);
   final padX = (modelSize - resizedWidth) ~/ 2;
   final padY = (modelSize - resizedHeight) ~/ 2;
-  final canvas = img.Image(width: modelSize, height: modelSize);
-  // Black letterbox background.
-  for (var y = 0; y < modelSize; y++) {
-    for (var x = 0; x < modelSize; x++) {
-      canvas.setPixelRgb(x, y, 0, 0, 0);
-    }
-  }
+  // A three-channel image starts with black pixels, which form the
+  // letterbox padding without an additional full-frame clearing pass.
+  final canvas = img.Image(width: modelSize, height: modelSize, numChannels: 3);
   for (var y = 0; y < resizedHeight; y++) {
     final sourceY = (y * height / resizedHeight).floor();
     final row = sourceY * bytesPerRow;
@@ -40,13 +36,12 @@ Uint8List _encodeCameraFrame({
       final sourceX = (x * width / resizedWidth).floor();
       final offset = row + sourceX * 4;
       if (offset + 3 >= bytes.length) continue;
-      canvas.setPixelRgba(
+      canvas.setPixelRgb(
         padX + x,
         padY + y,
         bytes[offset + 1],
         bytes[offset + 2],
         bytes[offset + 3],
-        bytes[offset],
       );
     }
   }
