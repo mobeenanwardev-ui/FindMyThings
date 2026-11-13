@@ -1,6 +1,7 @@
 import Cocoa
 import FlutterMacOS
 import Vision
+import UniformTypeIdentifiers
 
 class MainFlutterWindow: NSWindow {
   private let trackerQueue = DispatchQueue(label: "com.findmythings.vision-tracker")
@@ -15,6 +16,38 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
+
+    let photoPickerChannel = FlutterMethodChannel(
+      name: "com.findmythings/macos_photo_picker",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+    photoPickerChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else {
+        result(FlutterError(code: "WINDOW_UNAVAILABLE", message: "The app window is unavailable.", details: nil))
+        return
+      }
+      guard call.method == "pickMultipleImages" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      DispatchQueue.main.async {
+        let panel = NSOpenPanel()
+        panel.title = "Choose reference photos"
+        panel.message = "Select one or more photos of your belonging."
+        panel.prompt = "Add Photos"
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canCreateDirectories = false
+        panel.beginSheetModal(for: self) { response in
+          guard response == .OK else {
+            result([String]())
+            return
+          }
+          result(panel.urls.map { $0.path })
+        }
+      }
+    }
 
     let trackerChannel = FlutterMethodChannel(
       name: trackerChannelName,
