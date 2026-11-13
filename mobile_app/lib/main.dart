@@ -388,46 +388,32 @@ class _ItemDialogState extends State<ItemDialog> {
   @override void initState(){super.initState();_name=TextEditingController(text:widget.item?.name??'');_category=TextEditingController(text:widget.item?.category??'My belongings');}
   @override void dispose(){_name.dispose();_category.dispose();super.dispose();}
 
-  static const MethodChannel _macPhotoChannel = MethodChannel('com.findmythings/macos_photo_picker');
-
-  Future<void> _pick() async {
+  Future<void> _pick({ImageSource source = ImageSource.gallery}) async {
     if (_busy) return;
     setState(() { _busy = true; _error = null; });
     try {
-      List<XFile> picked;
-      if (Platform.isMacOS) {
-        // Read the selected file inside the native security scope, then use
-        // a temporary app-owned copy so Flutter can safely preview it.
-        final selected = await _macPhotoChannel.invokeMapMethod<String, dynamic>('pickImage');
-        if (selected == null) {
-          picked = <XFile>[];
-        } else {
-          final name = selected['name'] as String? ?? 'reference.jpg';
-          final bytes = selected['bytes'] as Uint8List;
-          final temp = await getTemporaryDirectory();
-          final safeName = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
-          final file = File('${temp.path}/findmythings_${DateTime.now().microsecondsSinceEpoch}_$safeName');
-          await file.writeAsBytes(bytes, flush: true);
-          picked = <XFile>[XFile(file.path)];
-        }
-      } else {
-        final photo = await widget.picker.pickImage(source: ImageSource.gallery, imageQuality: 88, maxWidth: 1800);
-        picked = photo == null ? <XFile>[] : <XFile>[photo];
-      }
-      if (picked.isNotEmpty && mounted) {
-        setState(() => _newPhotos.addAll(picked));
+      // Restore the original single-image picker; no custom macOS panel.
+      final photo = await widget.picker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 1800,
+      );
+      if (photo != null && mounted) {
+        setState(() {
+          _newPhotos
+            ..clear()
+            ..add(photo);
+        });
       }
     } catch (error, stack) {
       debugPrint('Photo picker error: $error\\n$stack');
-      if (mounted) setState(() => _error = 'Could not open photos: $error');
+      if (mounted) setState(() => _error = 'Could not open photo: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _photoMenu() async {
-    // On macOS, use our native NSOpenPanel directly. Avoid stacking a Flutter
-    // bottom sheet on top of an AlertDialog before opening the native panel.
     if (Platform.isMacOS) {
       await _pick();
       return;
@@ -440,11 +426,11 @@ class _ItemDialogState extends State<ItemDialog> {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Padding(
             padding: EdgeInsets.all(12),
-            child: Text('Add reference photos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+            child: Text('Add a photo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
           ),
           ListTile(
             leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Choose a photo'),
+            title: const Text('Choose from photos'),
             onTap: () => Navigator.pop(c, ImageSource.gallery),
           ),
           ListTile(
@@ -456,22 +442,7 @@ class _ItemDialogState extends State<ItemDialog> {
         ]),
       ),
     );
-    if (source == ImageSource.gallery) await _pick();
-    if (source == ImageSource.camera) {
-      setState(() { _busy = true; _error = null; });
-      try {
-        final photo = await widget.picker.pickImage(
-          source: ImageSource.camera,
-          imageQuality: 88,
-          maxWidth: 1800,
-        );
-        if (photo != null && mounted) setState(() => _newPhotos.add(photo));
-      } catch (error) {
-        if (mounted) setState(() => _error = 'Could not open camera: $error');
-      } finally {
-        if (mounted) setState(() => _busy = false);
-      }
-    }
+    if (source != null) await _pick(source: source);
   }
 
   void _submit(){
@@ -490,7 +461,7 @@ class _ItemDialogState extends State<ItemDialog> {
         const SizedBox(height:10),
         TextField(controller:_category,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Category',hintText:'For example: Everyday items')),
         const SizedBox(height:16),
-        Row(children:[const Expanded(child:Text('Reference photos',style:TextStyle(fontWeight:FontWeight.w800))),Text('$total added',style:const TextStyle(color:muted,fontSize:12))]),
+        Row(children:[const Expanded(child:Text('Reference photo',style:TextStyle(fontWeight:FontWeight.w800))),Text('$total added',style:const TextStyle(color:muted,fontSize:12))]),
         const SizedBox(height:9),
         if(total==0) Container(height:112,width:double.infinity,decoration:BoxDecoration(color:const Color(0xFFE8EEE8),borderRadius:BorderRadius.circular(15)),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.photo_library_outlined,size:30,color:green),SizedBox(height:6),Text('Add one clear photo of your belonging',style:TextStyle(color:muted,fontSize:12))]))
         else SizedBox(height:104,child:ListView(scrollDirection:Axis.horizontal,children:[
@@ -498,8 +469,8 @@ class _ItemDialogState extends State<ItemDialog> {
           ..._newPhotos.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p.path),width:104,height:104,fit:BoxFit.cover)))),
         ])),
         const SizedBox(height:10),
-        SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':'Add photos'))),
-        if(total>0)TextButton.icon(onPressed:()=>setState(()=>_removeAll=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove all reference photos')),
+        SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':(total > 0 ? 'Change photo' : 'Add a photo')))),
+        if(total>0)TextButton.icon(onPressed:()=>setState(()=>_removeAll=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove photo')),
         if(_error!=null)Padding(padding:const EdgeInsets.only(top:7),child:Text(_error!,style:const TextStyle(color:Colors.red,fontSize:12))),
       ])),
       actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),FilledButton(onPressed:_busy?null:_submit,child:const Text('Save'))]);
