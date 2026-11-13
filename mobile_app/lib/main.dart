@@ -449,13 +449,16 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
     try {
       // Copy the camera buffer into transferable memory, then do pixel
       // conversion and JPEG encoding on a worker isolate.
+      final frameWidth = frame.width;
+      final frameHeight = frame.height;
+      final frameBytesPerRow = frame.bytesPerRow;
       final transferable = TransferableTypedData.fromList([frame.bytes]);
       final encodedBytes = await Isolate.run(
         () => _encodeCameraFrame(
           transferableBytes: transferable,
-          width: frame.width,
-          height: frame.height,
-          bytesPerRow: frame.bytesPerRow,
+          width: frameWidth,
+          height: frameHeight,
+          bytesPerRow: frameBytesPerRow,
         ),
       );
 
