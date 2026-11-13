@@ -415,13 +415,25 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       await directory.create(recursive: true);
       final imageFile = File('${directory.path}/findmythings_live_frame.jpg');
       await imageFile.writeAsBytes(img.encodeJpg(converted, quality: 82), flush: true);
-      final results = await AiModelService().detectObjects(imageFile.path);
+      final ai = AiModelService();
+      var results = await ai.detectObjects(imageFile.path);
+      final referencePath = widget.item.photo;
+      if (results.isNotEmpty && referencePath != null && await File(referencePath).exists()) {
+        results = await ai.matchDetectedRegions(
+          referencePath: referencePath,
+          framePath: imageFile.path,
+          detections: results,
+        );
+      }
       if (!mounted) return;
+      final matches = results.where((d) => d.isMatch).length;
       setState(() {
         _detections = results;
         _scanStatus = results.isEmpty
-            ? 'Scanning… no recognised COCO objects in this frame.'
-            : 'Live detections: ${results.map((d) => d.label).join(', ')}';
+            ? 'Scanning… no recognised objects in this frame.'
+            : matches > 0
+                ? '${widget.item.name} possible match found • ${matches} region(s) matched'
+                : 'Scanning: ${results.length} objects • comparing with saved ${widget.item.name}';
       });
     } catch (error) {
       if (mounted) setState(() => _scanStatus = 'Live detection error: $error');
@@ -565,12 +577,12 @@ class DetectionOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final border = Paint()
-      ..color = const Color(0xFFFF5252)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    final marker = Paint()..color = const Color(0xFFFF5252);
+    final border = Paint()..style = PaintingStyle.stroke..strokeWidth = 3;
+    final marker = Paint();
     for (final detection in detections) {
+      final color = detection.isMatch ? const Color(0xFF38E06F) : const Color(0xFFFF5252);
+      border.color = color;
+      marker.color = color;
       final rect = Rect.fromCenter(
         center: Offset(detection.centerX * size.width, detection.centerY * size.height),
         width: detection.width * size.width,
