@@ -420,7 +420,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   static const MethodChannel _trackerChannel = MethodChannel('com.findmythings/object_tracker');
   bool _trackingEnabled = false;
   int _trackingFrames = 0;
-  static const int _framesBetweenRedetections = 7;
+  static const int _framesBetweenRedetections = 24;
   List<ObjectDetection> _previousDetections = [];
   ObjectDetection? _lastConfirmedMatch;
   DateTime? _lastConfirmedMatchAt;
@@ -668,7 +668,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
     List<ObjectDetection> current,
     DateTime now,
   ) {
-    const matchMemory = Duration(milliseconds: 1400);
+    const matchMemory = Duration(milliseconds: 2500);
     final smoothed = <ObjectDetection>[];
 
     for (final detection in current) {
