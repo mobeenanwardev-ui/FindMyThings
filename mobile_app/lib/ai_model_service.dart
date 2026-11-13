@@ -11,6 +11,8 @@ class ObjectDetection {
     required this.centerY,
     required this.width,
     required this.height,
+    this.similarity,
+    this.isMatch = false,
   });
 
   final String label;
@@ -116,6 +118,80 @@ class AiModelService {
     } finally {
       await model?.dispose();
     }
+  }
+
+
+  Future<List<ObjectDetection>> matchDetectedRegions({
+    required String referencePath,
+    required String framePath,
+    required List<ObjectDetection> detections,
+    double matchThreshold = 0.72,
+  }) async {
+    if (detections.isEmpty) return detections;
+    MLModel? model;
+    try {
+      model = await MLModel.loadAsset(
+        clipAsset,
+        configuration: const MLModelConfiguration(
+          computeUnits: MLComputeUnits.cpuAndNeuralEngine,
+        ),
+      );
+      final referenceEmbedding = await _clipEmbedding(model, referencePath);
+      final frameBytes = await File(framePath).readAsBytes();
+      final frame = img.decodeImage(frameBytes);
+      if (frame == null) throw FormatException('Could not decode camera frame for crop matching.');
+
+      final matched = <ObjectDetection>[];
+      for (final detection in detections.take(5)) {
+        final left = ((detection.centerX - detection.width / 2) * frame.width)
+            .round().clamp(0, frame.width - 1);
+        final top = ((detection.centerY - detection.height / 2) * frame.height)
+            .round().clamp(0, frame.height - 1);
+        final cropWidth = (detection.width * frame.width).round()
+            .clamp(1, frame.width - left);
+        final cropHeight = (detection.height * frame.height).round()
+            .clamp(1, frame.height - top);
+        final crop = img.copyCrop(
+          frame,
+          x: left,
+          y: top,
+          width: cropWidth,
+          height: cropHeight,
+        );
+        final cropPath = '${Directory.systemTemp.path}/fmt_crop_${detection.hashCode}.jpg';
+        await File(cropPath).writeAsBytes(img.encodeJpg(crop, quality: 88), flush: true);
+        final candidateEmbedding = await _clipEmbedding(model, cropPath);
+        final similarity = _cosineSimilarity(referenceEmbedding, candidateEmbedding);
+        matched.add(ObjectDetection(
+          label: detection.label,
+          confidence: detection.confidence,
+          centerX: detection.centerX,
+          centerY: detection.centerY,
+          width: detection.width,
+          height: detection.height,
+          similarity: similarity,
+          isMatch: similarity >= matchThreshold,
+        ));
+        try { await File(cropPath).delete(); } catch (_) {}
+      }
+      return matched;
+    } finally {
+      await model?.dispose();
+    }
+  }
+
+  double _cosineSimilarity(List<double> a, List<double> b) {
+    if (a.length != b.length) throw StateError('CLIP embedding dimensions do not match.');
+    var dot = 0.0;
+    var normA = 0.0;
+    var normB = 0.0;
+    for (var i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    if (normA == 0 || normB == 0) return 0;
+    return dot / math.sqrt(normA * normB);
   }
 
   Future<ImageMatch> compareImages(String referencePath, String cameraPath) async {
