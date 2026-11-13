@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:camera_macos/camera_macos.dart';
 import 'ai_model_service.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:native_image_picker_macos/native_image_picker_macos.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 
@@ -49,7 +50,13 @@ Uint8List _encodeCameraFrame(Map<String, Object> message) {
   return Uint8List.fromList(img.encodeJpg(canvas, quality: 72));
 }
 
-void main() => runApp(const FindMyThingsApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isMacOS) {
+    await NativeImagePickerMacOS.registerWithIfSupported();
+  }
+  runApp(const FindMyThingsApp());
+}
 
 const green = Color(0xFF17483B);
 const cream = Color(0xFFF6F5EF);
