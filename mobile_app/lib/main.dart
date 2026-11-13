@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -13,12 +12,11 @@ import 'package:image/image.dart' as img;
 // Camera pixel conversion and JPEG encoding run away from Flutter's UI isolate.
 // The model still receives a fixed 640x640 letterboxed image, preserving the
 // camera frame's aspect ratio instead of stretching it.
-Uint8List _encodeCameraFrame({
-  required TransferableTypedData transferableBytes,
-  required int width,
-  required int height,
-  required int bytesPerRow,
-}) {
+Uint8List _encodeCameraFrame(Map<String, Object> message) {
+  final transferableBytes = message['bytes'] as TransferableTypedData;
+  final width = message['width'] as int;
+  final height = message['height'] as int;
+  final bytesPerRow = message['bytesPerRow'] as int;
   const modelSize = 640;
   final bytes = transferableBytes.materialize().asUint8List();
   final scale = math.min(modelSize / width, modelSize / height);
@@ -444,17 +442,14 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
     try {
       // Copy the camera buffer into transferable memory, then do pixel
       // conversion and JPEG encoding on a worker isolate.
-      final frameWidth = frame.width;
-      final frameHeight = frame.height;
-      final frameBytesPerRow = frame.bytesPerRow;
-      final transferable = TransferableTypedData.fromList([frame.bytes]);
-      final encodedBytes = await Isolate.run(
-        () => _encodeCameraFrame(
-          transferableBytes: transferable,
-          width: frameWidth,
-          height: frameHeight,
-          bytesPerRow: frameBytesPerRow,
-        ),
+      final encodedBytes = await compute<Map<String, Object>, Uint8List>(
+        _encodeCameraFrame,
+        <String, Object>{
+          'bytes': TransferableTypedData.fromList([frame.bytes]),
+          'width': frame.width,
+          'height': frame.height,
+          'bytesPerRow': frame.bytesPerRow,
+        },
       );
 
       final directory = await getTemporaryDirectory();
