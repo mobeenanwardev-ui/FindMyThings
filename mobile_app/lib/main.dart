@@ -483,15 +483,28 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
           );
           if (tracked != null && tracked['tracked'] == true) {
             final confidence = (tracked['confidence'] as num?)?.toDouble() ?? 0.0;
+            // Vision tracks the 640x640 letterboxed JPEG. Convert its box
+            // back to camera-frame coordinates for the Flutter preview.
+            final frameScale = math.min(640 / frame.width, 640 / frame.height);
+            final frameWidth = frame.width * frameScale;
+            final frameHeight = frame.height * frameScale;
+            final framePadX = (640 - frameWidth) / 2;
+            final framePadY = (640 - frameHeight) / 2;
+            final trackedLeft = (tracked['x'] as num).toDouble();
+            final trackedTop = (tracked['y'] as num).toDouble();
+            final trackedWidth = (tracked['width'] as num).toDouble();
+            final trackedHeight = (tracked['height'] as num).toDouble();
+            final cameraLeft = (trackedLeft * 640 - framePadX) / frameWidth;
+            final cameraTop = (trackedTop * 640 - framePadY) / frameHeight;
+            final cameraWidth = trackedWidth * 640 / frameWidth;
+            final cameraHeight = trackedHeight * 640 / frameHeight;
             final detection = ObjectDetection(
               label: widget.item.name,
               confidence: confidence,
-              centerX: (tracked['x'] as num).toDouble() +
-                  (tracked['width'] as num).toDouble() / 2,
-              centerY: (tracked['y'] as num).toDouble() +
-                  (tracked['height'] as num).toDouble() / 2,
-              width: (tracked['width'] as num).toDouble(),
-              height: (tracked['height'] as num).toDouble(),
+              centerX: (cameraLeft + cameraWidth / 2).clamp(0.0, 1.0),
+              centerY: (cameraTop + cameraHeight / 2).clamp(0.0, 1.0),
+              width: cameraWidth.clamp(0.0, 1.0),
+              height: cameraHeight.clamp(0.0, 1.0),
               isMatch: true,
             );
             _trackingFrames++;
@@ -572,12 +585,23 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       final confirmedMatch = matchingDetections.isEmpty ? null : matchingDetections.first;
       if (confirmedMatch != null && Platform.isMacOS) {
         try {
-          final boxLeft =
-              (confirmedMatch.centerX - confirmedMatch.width / 2).clamp(0.0, 1.0);
-          final boxTop =
-              (confirmedMatch.centerY - confirmedMatch.height / 2).clamp(0.0, 1.0);
-          final boxWidth = math.min(confirmedMatch.width, 1.0 - boxLeft).clamp(0.001, 1.0);
-          final boxHeight = math.min(confirmedMatch.height, 1.0 - boxTop).clamp(0.001, 1.0);
+          // Convert camera-frame coordinates back into the square,
+          // letterboxed JPEG coordinates consumed by Vision.
+          final frameScale = math.min(640 / frame.width, 640 / frame.height);
+          final frameWidth = frame.width * frameScale;
+          final frameHeight = frame.height * frameScale;
+          final framePadX = (640 - frameWidth) / 2;
+          final framePadY = (640 - frameHeight) / 2;
+          final squareCenterX =
+              (confirmedMatch.centerX * frameWidth + framePadX) / 640;
+          final squareCenterY =
+              (confirmedMatch.centerY * frameHeight + framePadY) / 640;
+          final squareWidth = confirmedMatch.width * frameWidth / 640;
+          final squareHeight = confirmedMatch.height * frameHeight / 640;
+          final boxLeft = (squareCenterX - squareWidth / 2).clamp(0.0, 1.0);
+          final boxTop = (squareCenterY - squareHeight / 2).clamp(0.0, 1.0);
+          final boxWidth = math.min(squareWidth, 1.0 - boxLeft).clamp(0.001, 1.0);
+          final boxHeight = math.min(squareHeight, 1.0 - boxTop).clamp(0.001, 1.0);
           await _trackerChannel.invokeMethod<void>(
             'startTracking',
             <String, Object>{
