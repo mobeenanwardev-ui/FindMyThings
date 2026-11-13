@@ -388,27 +388,76 @@ class _ItemDialogState extends State<ItemDialog> {
   @override void initState(){super.initState();_name=TextEditingController(text:widget.item?.name??'');_category=TextEditingController(text:widget.item?.category??'My belongings');}
   @override void dispose(){_name.dispose();_category.dispose();super.dispose();}
 
+  static const MethodChannel _macPhotoChannel = MethodChannel('com.findmythings/macos_photo_picker');
+
   Future<void> _pick() async {
-    setState(()=>_busy=true);
-    try {final picked=await widget.picker.pickMultiImage(imageQuality:88,maxWidth:1800);if(picked.isNotEmpty&&mounted)setState(()=>_newPhotos.addAll(picked));}
-    catch(e){debugPrint('Picker error: $e');if(mounted)setState(()=>_error='Could not open photos. Check permissions and try again.');}
-    finally{if(mounted)setState(()=>_busy=false);}
+    if (_busy) return;
+    setState(() { _busy = true; _error = null; });
+    try {
+      List<XFile> picked;
+      if (Platform.isMacOS) {
+        final paths = await _macPhotoChannel.invokeListMethod<String>('pickMultipleImages');
+        picked = (paths ?? const <String>[]).map((path) => XFile(path)).toList();
+      } else {
+        picked = await widget.picker.pickMultiImage(imageQuality: 88, maxWidth: 1800);
+      }
+      if (picked.isNotEmpty && mounted) {
+        setState(() => _newPhotos.addAll(picked));
+      }
+    } catch (error, stack) {
+      debugPrint('Photo picker error: $error\\n$stack');
+      if (mounted) setState(() => _error = 'Could not open photos: $error');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _photoMenu() async {
-    final source=await showModalBottomSheet<ImageSource>(context:context,showDragHandle:true,backgroundColor:Colors.white,
-      builder:(c)=>SafeArea(child:Column(mainAxisSize:MainAxisSize.min,children:[
-        const Padding(padding:EdgeInsets.all(12),child:Text('Add reference photos',style:TextStyle(fontSize:20,fontWeight:FontWeight.w800))),
-        ListTile(leading:const Icon(Icons.photo_library_outlined),title:const Text('Choose multiple photos'),onTap:()=>Navigator.pop(c,ImageSource.gallery)),
-        if(!Platform.isMacOS) ListTile(leading:const Icon(Icons.camera_alt_outlined),title:const Text('Take a photo'),onTap:()=>Navigator.pop(c,ImageSource.camera)),
-        const SizedBox(height:12),
-      ])));
-    if(source==ImageSource.gallery) await _pick();
-    if(source==ImageSource.camera) {
-      setState(()=>_busy=true);
-      try {final p=await widget.picker.pickImage(source:ImageSource.camera,imageQuality:88,maxWidth:1800);if(p!=null&&mounted)setState(()=>_newPhotos.add(p));}
-      catch(e){if(mounted)setState(()=>_error='Could not open camera. Check permissions and try again.');}
-      finally{if(mounted)setState(()=>_busy=false);}
+    // On macOS, use our native NSOpenPanel directly. Avoid stacking a Flutter
+    // bottom sheet on top of an AlertDialog before opening the native panel.
+    if (Platform.isMacOS) {
+      await _pick();
+      return;
+    }
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (c) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('Add reference photos', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Choose multiple photos'),
+            onTap: () => Navigator.pop(c, ImageSource.gallery),
+          ),
+          ListTile(
+            leading: const Icon(Icons.camera_alt_outlined),
+            title: const Text('Take a photo'),
+            onTap: () => Navigator.pop(c, ImageSource.camera),
+          ),
+          const SizedBox(height: 12),
+        ]),
+      ),
+    );
+    if (source == ImageSource.gallery) await _pick();
+    if (source == ImageSource.camera) {
+      setState(() { _busy = true; _error = null; });
+      try {
+        final photo = await widget.picker.pickImage(
+          source: ImageSource.camera,
+          imageQuality: 88,
+          maxWidth: 1800,
+        );
+        if (photo != null && mounted) setState(() => _newPhotos.add(photo));
+      } catch (error) {
+        if (mounted) setState(() => _error = 'Could not open camera: $error');
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
     }
   }
 
