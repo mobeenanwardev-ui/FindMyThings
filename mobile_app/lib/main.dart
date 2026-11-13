@@ -437,10 +437,10 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
           _cameraAspectRatio = frame.width / frame.height;
         }
         final now = DateTime.now();
-        // Do not add an artificial multi-second pause. The processing lock
-        // already prevents overlapping model predictions; start the next
-        // detection as soon as the previous one has completed.
-        if (now.difference(_lastInference).inMilliseconds < 250) return;
+        // Vision tracking is lighter than YOLO, so sample it more often
+        // for smoother marker motion. Keep detector passes at a safer cadence.
+        final minimumInterval = _trackingEnabled ? 80 : 250;
+        if (now.difference(_lastInference).inMilliseconds < minimumInterval) return;
         _lastInference = now;
         _processFrame(frame);
       });
