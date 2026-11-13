@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:camera_macos/camera_macos.dart';
 import 'ai_model_service.dart';
@@ -416,6 +417,10 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
   int _inferenceCount = 0;
   Duration _lastDetectionDuration = Duration.zero;
+  static const MethodChannel _trackerChannel = MethodChannel('com.findmythings/object_tracker');
+  bool _trackingEnabled = false;
+  int _trackingFrames = 0;
+  static const int _framesBetweenRedetections = 7;
   List<ObjectDetection> _previousDetections = [];
   ObjectDetection? _lastConfirmedMatch;
   DateTime? _lastConfirmedMatchAt;
@@ -467,6 +472,50 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       final imageFile = File(_frameFilePath!);
       await imageFile.writeAsBytes(encodedBytes, flush: false);
 
+      // Once CLIP confirms the requested belonging, Vision tracks its
+      // bounding box on intervening camera frames. Periodic YOLO + CLIP
+      // passes re-anchor the tracker to limit drift.
+      if (_trackingEnabled && _trackingFrames < _framesBetweenRedetections) {
+        try {
+          final tracked = await _trackerChannel.invokeMapMethod<String, dynamic>(
+            'trackFrame',
+            <String, Object>{'image': encodedBytes},
+          );
+          if (tracked != null && tracked['tracked'] == true) {
+            final confidence = (tracked['confidence'] as num?)?.toDouble() ?? 0.0;
+            final detection = ObjectDetection(
+              label: widget.item.name,
+              confidence: confidence,
+              centerX: (tracked['x'] as num).toDouble() +
+                  (tracked['width'] as num).toDouble() / 2,
+              centerY: (tracked['y'] as num).toDouble() +
+                  (tracked['height'] as num).toDouble() / 2,
+              width: (tracked['width'] as num).toDouble(),
+              height: (tracked['height'] as num).toDouble(),
+              isMatch: true,
+            );
+            _trackingFrames++;
+            if (mounted) {
+              setState(() {
+                _detections = [detection];
+                _scanStatus =
+                    'Tracking ${widget.item.name} • Vision ${(confidence * 100).round()}%';
+              });
+            }
+            return;
+          }
+        } on PlatformException catch (error) {
+          debugPrint('Vision tracking error: ${error.message}');
+        } on MissingPluginException {
+          debugPrint('Native Vision tracker is not registered.');
+        }
+        _trackingEnabled = false;
+        _trackingFrames = 0;
+      } else if (_trackingEnabled) {
+        // Run the detector again after a short tracking burst to correct drift.
+        _trackingFrames = 0;
+      }
+
       final detectionStartedAt = DateTime.now();
       var results = await _ai.detectObjects(imageFile.path);
       _lastDetectionDuration = DateTime.now().difference(detectionStartedAt);
@@ -475,7 +524,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       // CLIP is deliberately less frequent than YOLO. It compares the
       // highest-confidence proposals only, while the preview stays live.
       if (results.isNotEmpty &&
-          _inferenceCount % 4 == 0 &&
+          (_trackingEnabled || _inferenceCount % 4 == 0) &&
           referencePath != null &&
           await File(referencePath).exists()) {
         final scored = await _ai.matchDetectedRegions(
@@ -516,6 +565,35 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
 
       if (!mounted) return;
       final stableDetections = _stabilizeDetections(cameraDetections, DateTime.now());
+      final matchingDetections = stableDetections.where((d) => d.isMatch).toList();
+      final confirmedMatch = matchingDetections.isEmpty ? null : matchingDetections.first;
+      if (confirmedMatch != null && Platform.isMacOS) {
+        try {
+          await _trackerChannel.invokeMethod<void>(
+            'startTracking',
+            <String, Object>{
+              'image': encodedBytes,
+              'x': (confirmedMatch.centerX - confirmedMatch.width / 2)
+                  .clamp(0.0, 1.0),
+              'y': (confirmedMatch.centerY - confirmedMatch.height / 2)
+                  .clamp(0.0, 1.0),
+              'width': confirmedMatch.width.clamp(0.001, 1.0),
+              'height': confirmedMatch.height.clamp(0.001, 1.0),
+            },
+          );
+          _trackingEnabled = true;
+          _trackingFrames = 0;
+        } on PlatformException catch (error) {
+          _trackingEnabled = false;
+          debugPrint('Could not start Vision tracking: ${error.message}');
+        } on MissingPluginException {
+          _trackingEnabled = false;
+          debugPrint('Native Vision tracker is not registered.');
+        }
+      } else if (stableDetections.isEmpty) {
+        _trackingEnabled = false;
+        _trackingFrames = 0;
+      }
       final matches = stableDetections.where((d) => d.isMatch).length;
       setState(() {
         _detections = stableDetections;
