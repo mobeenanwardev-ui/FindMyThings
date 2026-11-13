@@ -1,7 +1,6 @@
 import Cocoa
 import FlutterMacOS
 import Vision
-import UniformTypeIdentifiers
 
 class MainFlutterWindow: NSWindow {
   private let trackerQueue = DispatchQueue(label: "com.findmythings.vision-tracker")
@@ -16,55 +15,6 @@ class MainFlutterWindow: NSWindow {
     self.setFrame(windowFrame, display: true)
 
     RegisterGeneratedPlugins(registry: flutterViewController)
-
-    let photoPickerChannel = FlutterMethodChannel(
-      name: "com.findmythings/macos_photo_picker",
-      binaryMessenger: flutterViewController.engine.binaryMessenger
-    )
-    photoPickerChannel.setMethodCallHandler { [weak self] call, result in
-      guard let self = self else {
-        result(FlutterError(code: "WINDOW_UNAVAILABLE", message: "The app window is unavailable.", details: nil))
-        return
-      }
-      guard call.method == "pickImage" else {
-        result(FlutterMethodNotImplemented)
-        return
-      }
-      DispatchQueue.main.async {
-        let panel = NSOpenPanel()
-        panel.title = "Choose a reference photo"
-        panel.message = "Select one clear photo of your belonging."
-        panel.prompt = "Choose Photo"
-        panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.canCreateDirectories = false
-        panel.beginSheetModal(for: self) { response in
-          guard response == .OK, let url = panel.url else {
-            result(nil)
-            return
-          }
-          // Read the selected file while macOS sandbox permission is active.
-          let scoped = url.startAccessingSecurityScopedResource()
-          defer {
-            if scoped { url.stopAccessingSecurityScopedResource() }
-          }
-          do {
-            let data = try Data(contentsOf: url)
-            result([
-              "name": url.lastPathComponent,
-              "bytes": FlutterStandardTypedData(bytes: data)
-            ])
-          } catch {
-            result(FlutterError(
-              code: "PHOTO_READ_FAILED",
-              message: "Could not read the selected photo: \\(error.localizedDescription)",
-              details: nil
-            ))
-          }
-        }
-      }
-    }
 
     let trackerChannel = FlutterMethodChannel(
       name: trackerChannelName,
