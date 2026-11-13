@@ -61,8 +61,34 @@ class FindMyThingsApp extends StatelessWidget {
   Widget build(BuildContext context) => MaterialApp(
     title: 'FindMyThings',
     debugShowCheckedModeBanner: false,
-    theme: ThemeData(useMaterial3: true, scaffoldBackgroundColor: cream,
-      colorScheme: ColorScheme.fromSeed(seedColor: green)),
+    theme: ThemeData(
+      useMaterial3: true,
+      scaffoldBackgroundColor: cream,
+      colorScheme: ColorScheme.fromSeed(seedColor: green, brightness: Brightness.light),
+      appBarTheme: const AppBarTheme(
+        backgroundColor: cream, foregroundColor: Color(0xFF17231D),
+        elevation: 0, scrolledUnderElevation: 0, centerTitle: false,
+        titleTextStyle: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF17231D)),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true, fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        hintStyle: const TextStyle(color: Color(0xFF929B94), fontSize: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: Color(0xFFE8EAE4))),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: const BorderSide(color: green, width: 1.4)),
+      ),
+      filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(
+        backgroundColor: green, foregroundColor: Colors.white,
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      )),
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.white, elevation: 0, indicatorColor: const Color(0xFFE4EEE7),
+        labelTextStyle: WidgetStateProperty.all(const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+      ),
+    ),
     home: const HomePage(),
   );
 }
@@ -246,20 +272,26 @@ class _HomePageState extends State<HomePage> {
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 110),
     children: [
       Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(color: green, borderRadius: BorderRadius.circular(23)),
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF153F34), Color(0xFF286653)]),
+          borderRadius: BorderRadius.circular(26),
+          boxShadow: [BoxShadow(color: green.withValues(alpha: 0.16), blurRadius: 24, offset: const Offset(0, 12))],
+        ),
         child: Row(children: [
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('YOUR LITTLE INVENTORY', style: TextStyle(color: Color(0xFFC9D9CE), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
-            const SizedBox(height: 8),
-            Text('${_items.length} ${_items.length == 1 ? 'thing' : 'things'} saved', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800)),
-            const Text('Saved privately on this device.', style: TextStyle(color: Color(0xFFE1EAE3), fontSize: 12)),
+            const Text('YOUR PERSONAL INVENTORY', style: TextStyle(color: Color(0xFFC9D9CE), fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.4)),
+            const SizedBox(height: 10),
+            Text('${_items.length} ${_items.length == 1 ? 'belonging' : 'belongings'} saved', style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+            const SizedBox(height: 5),
+            const Text('Everything important, one tap away.', style: TextStyle(color: Color(0xFFE1EAE3), fontSize: 12)),
           ])),
-          const Icon(Icons.inventory_2_outlined, size: 42, color: Color(0xFFE1EAE3)),
+          Container(width:58,height:58,decoration:BoxDecoration(color:Colors.white.withValues(alpha:0.12),borderRadius:BorderRadius.circular(19)),
+            child:const Icon(Icons.center_focus_strong_rounded,size:31,color:Color(0xFFE1EAE3))),
         ]),
       ),
       const SizedBox(height: 22),
-      Text(_tab == 1 ? 'Recently added' : 'Your things', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF202A24))),
+      Text(_tab == 1 ? 'Recently added' : 'Your things', style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: Color(0xFF202A24))),
       const SizedBox(height: 12),
       TextField(onChanged: (value) => setState(() => _search = value), decoration: const InputDecoration(hintText: 'Search by name', prefixIcon: Icon(Icons.search))),
       const SizedBox(height: 16),
@@ -315,7 +347,7 @@ class _HomePageState extends State<HomePage> {
     const _Setting(icon:Icons.wifi_off,title:'Works offline',subtitle:'Your saved belongings and photos stay on this device.'),
     const _Setting(icon:Icons.lock_outline,title:'Private by design',subtitle:'No account or cloud upload is used by this inventory.'),
     const _Setting(icon:Icons.photo_library_outlined,title:'Your photos',subtitle:'Reference photos are copied into the app’s private storage.'),
-    const _Setting(icon:Icons.center_focus_strong,title:'Camera finder',subtitle:'Offline AI matching is the next feature to integrate.'),
+    const _Setting(icon:Icons.center_focus_strong,title:'Camera finder',subtitle:'Live object matching and visual tracking are enabled on the current macOS prototype.'),
     const SizedBox(height: 8),
     FilledButton.icon(onPressed: _verifyAiModels, icon: const Icon(Icons.memory), label: const Text('Check offline AI models')),
     Text('${_items.length} saved items',style:const TextStyle(color:muted)),
