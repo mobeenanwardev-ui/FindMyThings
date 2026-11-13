@@ -26,25 +26,42 @@ class MainFlutterWindow: NSWindow {
         result(FlutterError(code: "WINDOW_UNAVAILABLE", message: "The app window is unavailable.", details: nil))
         return
       }
-      guard call.method == "pickMultipleImages" else {
+      guard call.method == "pickImage" else {
         result(FlutterMethodNotImplemented)
         return
       }
       DispatchQueue.main.async {
         let panel = NSOpenPanel()
-        panel.title = "Choose reference photos"
-        panel.message = "Select one or more photos of your belonging."
-        panel.prompt = "Add Photos"
+        panel.title = "Choose a reference photo"
+        panel.message = "Select one clear photo of your belonging."
+        panel.prompt = "Choose Photo"
         panel.allowedContentTypes = [.image]
-        panel.allowsMultipleSelection = true
+        panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canCreateDirectories = false
         panel.beginSheetModal(for: self) { response in
-          guard response == .OK else {
-            result([String]())
+          guard response == .OK, let url = panel.url else {
+            result(nil)
             return
           }
-          result(panel.urls.map { $0.path })
+          // Read the selected file while macOS sandbox permission is active.
+          let scoped = url.startAccessingSecurityScopedResource()
+          defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+          }
+          do {
+            let data = try Data(contentsOf: url)
+            result([
+              "name": url.lastPathComponent,
+              "bytes": FlutterStandardTypedData(bytes: data)
+            ])
+          } catch {
+            result(FlutterError(
+              code: "PHOTO_READ_FAILED",
+              message: "Could not read the selected photo: \\(error.localizedDescription)",
+              details: nil
+            ))
+          }
         }
       }
     }
