@@ -66,7 +66,7 @@ class MainFlutterWindow: NSWindow {
           do {
             try self.sequenceHandler.perform([request], onImageData: image.data, orientation: .up)
             guard let observation = request.results?.first as? VNDetectedObjectObservation,
-                  observation.confidence >= 0.25 else {
+                  observation.confidence >= 0.18 else {
               self.trackingRequest = nil
               DispatchQueue.main.async { result(["tracked": false, "reason": "low_confidence"]) }
               return
