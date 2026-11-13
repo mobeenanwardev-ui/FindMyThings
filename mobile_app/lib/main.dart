@@ -416,6 +416,9 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
   int _inferenceCount = 0;
   Duration _lastDetectionDuration = Duration.zero;
+  List<ObjectDetection> _previousDetections = [];
+  ObjectDetection? _lastConfirmedMatch;
+  DateTime? _lastConfirmedMatchAt;
   String? _frameFilePath;
   double _cameraAspectRatio = 4 / 3;
 
@@ -475,11 +478,16 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
           _inferenceCount % 4 == 0 &&
           referencePath != null &&
           await File(referencePath).exists()) {
-        results = await _ai.matchDetectedRegions(
+        final scored = await _ai.matchDetectedRegions(
           referencePath: referencePath,
           framePath: imageFile.path,
           detections: results.take(1).toList(),
         );
+        // Keep the other YOLO boxes visible; CLIP only scores the best
+        // proposal, it does not replace the complete detector result.
+        if (scored.isNotEmpty) {
+          results = [scored.first, ...results.skip(1)];
+        }
       }
 
       // YOLO coordinates refer to the square letterboxed model input.
@@ -507,20 +515,126 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       }).where((d) => d.width > 0.01 && d.height > 0.01).toList();
 
       if (!mounted) return;
-      final matches = cameraDetections.where((d) => d.isMatch).length;
+      final stableDetections = _stabilizeDetections(cameraDetections, DateTime.now());
+      final matches = stableDetections.where((d) => d.isMatch).length;
       setState(() {
-        _detections = cameraDetections;
-        _scanStatus = cameraDetections.isEmpty
+        _detections = stableDetections;
+        _scanStatus = stableDetections.isEmpty
             ? 'Scanning… no recognised objects in this frame.'
             : matches > 0
                 ? '${widget.item.name} possible match found'
-                : 'Scanning: ${cameraDetections.length} objects • detection ${_lastDetectionDuration.inMilliseconds} ms';
+                : 'Scanning: ${stableDetections.length} objects • detection ${_lastDetectionDuration.inMilliseconds} ms';
       });
     } catch (error) {
       if (mounted) setState(() => _scanStatus = 'Live detection error: $error');
     } finally {
       _processingFrame = false;
     }
+  }
+
+  double _boxIoU(ObjectDetection a, ObjectDetection b) {
+    final aLeft = a.centerX - a.width / 2;
+    final aTop = a.centerY - a.height / 2;
+    final aRight = a.centerX + a.width / 2;
+    final aBottom = a.centerY + a.height / 2;
+    final bLeft = b.centerX - b.width / 2;
+    final bTop = b.centerY - b.height / 2;
+    final bRight = b.centerX + b.width / 2;
+    final bBottom = b.centerY + b.height / 2;
+    final intersectionWidth = math.max(0.0, math.min(aRight, bRight) - math.max(aLeft, bLeft));
+    final intersectionHeight = math.max(0.0, math.min(aBottom, bBottom) - math.max(aTop, bTop));
+    final intersection = intersectionWidth * intersectionHeight;
+    final union = a.width * a.height + b.width * b.height - intersection;
+    return union <= 0 ? 0 : intersection / union;
+  }
+
+  double _centerDistance(ObjectDetection a, ObjectDetection b) =>
+      math.sqrt(math.pow(a.centerX - b.centerX, 2) + math.pow(a.centerY - b.centerY, 2));
+
+  List<ObjectDetection> _stabilizeDetections(
+    List<ObjectDetection> current,
+    DateTime now,
+  ) {
+    const matchMemory = Duration(milliseconds: 1400);
+    final smoothed = <ObjectDetection>[];
+
+    for (final detection in current) {
+      ObjectDetection? previous;
+      var bestOverlap = 0.0;
+      for (final candidate in _previousDetections) {
+        if (candidate.label != detection.label) continue;
+        final overlap = _boxIoU(candidate, detection);
+        final distance = _centerDistance(candidate, detection);
+        if (overlap > bestOverlap && (overlap > 0.04 || distance < 0.14)) {
+          bestOverlap = overlap;
+          previous = candidate;
+        } else if (previous == null && distance < 0.14) {
+          previous = candidate;
+        }
+      }
+
+      // Exponential smoothing reduces box jitter without making the marker
+      // feel too slow when the object moves.
+      const newWeight = 0.68;
+      final stable = previous == null
+          ? detection
+          : ObjectDetection(
+              label: detection.label,
+              confidence: detection.confidence,
+              centerX: previous.centerX * (1 - newWeight) + detection.centerX * newWeight,
+              centerY: previous.centerY * (1 - newWeight) + detection.centerY * newWeight,
+              width: previous.width * (1 - newWeight) + detection.width * newWeight,
+              height: previous.height * (1 - newWeight) + detection.height * newWeight,
+              similarity: detection.similarity,
+              isMatch: detection.isMatch,
+            );
+      smoothed.add(stable);
+    }
+
+    final freshMatch = smoothed.where((d) => d.isMatch).toList();
+    if (freshMatch.isNotEmpty) {
+      _lastConfirmedMatch = freshMatch.first;
+      _lastConfirmedMatchAt = now;
+    }
+
+    final remembered = _lastConfirmedMatch;
+    final confirmedAt = _lastConfirmedMatchAt;
+    if (remembered != null &&
+        confirmedAt != null &&
+        now.difference(confirmedAt) <= matchMemory) {
+      var bestIndex = -1;
+      var bestScore = -1.0;
+      for (var i = 0; i < smoothed.length; i++) {
+        final candidate = smoothed[i];
+        final overlap = _boxIoU(remembered, candidate);
+        final distance = _centerDistance(remembered, candidate);
+        final score = overlap + (1 - distance) * 0.01;
+        if ((overlap > 0.025 || distance < 0.13) && score > bestScore) {
+          bestIndex = i;
+          bestScore = score;
+        }
+      }
+      if (bestIndex >= 0) {
+        final candidate = smoothed[bestIndex];
+        smoothed[bestIndex] = ObjectDetection(
+          label: candidate.label,
+          confidence: candidate.confidence,
+          centerX: candidate.centerX,
+          centerY: candidate.centerY,
+          width: candidate.width,
+          height: candidate.height,
+          similarity: candidate.similarity ?? remembered.similarity,
+          isMatch: true,
+        );
+        _lastConfirmedMatch = smoothed[bestIndex];
+      }
+    } else if (confirmedAt != null && now.difference(confirmedAt) > matchMemory) {
+      _lastConfirmedMatch = null;
+      _lastConfirmedMatchAt = null;
+    }
+
+    _previousDetections = smoothed;
+    return smoothed;
   }
 
   @override
