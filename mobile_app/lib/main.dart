@@ -22,8 +22,8 @@ Uint8List _encodeCameraFrame({
   const modelSize = 640;
   final bytes = transferableBytes.materialize().asUint8List();
   final scale = math.min(modelSize / width, modelSize / height);
-  final resizedWidth = (width * scale).round().clamp(1, modelSize);
-  final resizedHeight = (height * scale).round().clamp(1, modelSize);
+  final resizedWidth = (width * scale).round().clamp(1, modelSize).toInt();
+  final resizedHeight = (height * scale).round().clamp(1, modelSize).toInt();
   final padX = (modelSize - resizedWidth) ~/ 2;
   final padY = (modelSize - resizedHeight) ~/ 2;
   // A three-channel image starts with black pixels, which form the
@@ -494,10 +494,10 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
         return ObjectDetection(
           label: d.label,
           confidence: d.confidence,
-          centerX: left.clamp(0.0, 1.0),
-          centerY: top.clamp(0.0, 1.0),
-          width: boxWidth.clamp(0.0, 1.0),
-          height: boxHeight.clamp(0.0, 1.0),
+          centerX: left.clamp(0.0, 1.0).toDouble(),
+          centerY: top.clamp(0.0, 1.0).toDouble(),
+          width: boxWidth.clamp(0.0, 1.0).toDouble(),
+          height: boxHeight.clamp(0.0, 1.0).toDouble(),
           similarity: d.similarity,
           isMatch: d.isMatch,
         );
