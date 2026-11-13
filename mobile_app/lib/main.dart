@@ -5,6 +5,7 @@ import 'package:camera_macos/camera_macos.dart';
 import 'ai_model_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:image/image.dart' as img;
 
 void main() => runApp(const FindMyThingsApp());
 
@@ -366,45 +367,76 @@ class CameraFinderPage extends StatefulWidget {
 class _CameraFinderPageState extends State<CameraFinderPage> {
   CameraMacOSController? _cameraController;
   String? _cameraError;
-  String? _scanStatus;
-  bool _scanning = false;
+  String _scanStatus = 'Starting automatic object scanning…';
+  List<ObjectDetection> _detections = [];
+  bool _processingFrame = false;
+  bool _streamStarted = false;
+  DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
 
-  Future<void> _scanForObjects() async {
-    final controller = _cameraController;
-    if (controller == null || _scanning) return;
-    setState(() { _scanning = true; _scanStatus = 'Capturing image…'; });
+  Future<void> _startAutomaticScanning(CameraMacOSController controller) async {
+    if (_streamStarted) return;
+    _streamStarted = true;
     try {
-      final photo = await controller.takePicture();
-      final bytes = photo?.bytes;
-      if (bytes == null || bytes.isEmpty) {
-        throw StateError('The camera did not return an image.');
+      await controller.startImageStream((CameraImageData? frame) {
+        if (frame == null || !mounted || _processingFrame) return;
+        final now = DateTime.now();
+        if (now.difference(_lastInference).inMilliseconds < 900) return;
+        _lastInference = now;
+        _processFrame(frame);
+      });
+      if (mounted) setState(() => _scanStatus = 'Scanning automatically…');
+    } catch (error) {
+      _streamStarted = false;
+      if (mounted) setState(() => _scanStatus = 'Could not start live scanning: $error');
+    }
+  }
+
+  Future<void> _processFrame(CameraImageData frame) async {
+    _processingFrame = true;
+    try {
+      final converted = img.Image(width: frame.width, height: frame.height);
+      final bytes = frame.bytes;
+      for (var y = 0; y < frame.height; y++) {
+        final row = y * frame.bytesPerRow;
+        for (var x = 0; x < frame.width; x++) {
+          final offset = row + x * 4;
+          if (offset + 3 >= bytes.length) continue;
+          // camera_macos documents image stream pixels as ARGB8888.
+          converted.setPixelRgba(
+            x, y,
+            bytes[offset + 1],
+            bytes[offset + 2],
+            bytes[offset + 3],
+            bytes[offset],
+          );
+        }
       }
       final directory = await getTemporaryDirectory();
       await directory.create(recursive: true);
-      final imageFile = File('${directory.path}/findmythings_scan.jpg');
-      await imageFile.writeAsBytes(bytes, flush: true);
+      final imageFile = File('${directory.path}/findmythings_live_frame.jpg');
+      await imageFile.writeAsBytes(img.encodeJpg(converted, quality: 82), flush: true);
+      final results = await AiModelService().detectObjects(imageFile.path);
       if (!mounted) return;
-      setState(() => _scanStatus = 'Running YOLO object detection…');
-      final ai = AiModelService();
-      final detections = await ai.detectObjects(imageFile.path);
-      var result = detections.isEmpty
-          ? 'YOLO: no COCO objects detected.'
-          : 'YOLO: ' + detections.map((d) => '${d.label} (${(d.confidence * 100).round()}%)').join(', ');
-      final referencePath = widget.item.photo;
-      if (referencePath != null && await File(referencePath).exists()) {
-        if (mounted) setState(() => _scanStatus = '$result\\nComparing saved photo with CLIP…');
-        final match = await ai.compareImages(referencePath, imageFile.path);
-        result += '\\nCLIP whole-image similarity: ${(match.similarity * 100).toStringAsFixed(1)}%';
-      } else {
-        result += '\\nAdd a reference photo to compare this item.';
-      }
-      if (!mounted) return;
-      setState(() => _scanStatus = result);
+      setState(() {
+        _detections = results;
+        _scanStatus = results.isEmpty
+            ? 'Scanning… no recognised COCO objects in this frame.'
+            : 'Live detections: ${results.map((d) => d.label).join(', ')}';
+      });
     } catch (error) {
-      if (mounted) setState(() => _scanStatus = 'Detection failed: $error');
+      if (mounted) setState(() => _scanStatus = 'Live detection error: $error');
     } finally {
-      if (mounted) setState(() => _scanning = false);
+      _processingFrame = false;
     }
+  }
+
+  @override
+  void dispose() {
+    final controller = _cameraController;
+    if (controller != null && _streamStarted) {
+      controller.stopImageStream();
+    }
+    super.dispose();
   }
 
   @override
@@ -457,15 +489,20 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
                   children: [
                     CameraMacOSView(
                       fit: BoxFit.cover,
-                      cameraMode: CameraMacOSMode.photo,
+                      cameraMode: CameraMacOSMode.video,
                       onCameraInizialized: (controller) {
-                        if (mounted) {
-                          setState(() {
-                            _cameraController = controller;
-                            _cameraError = null;
-                          });
-                        }
+                        if (!mounted) return;
+                        setState(() {
+                          _cameraController = controller;
+                          _cameraError = null;
+                        });
+                        _startAutomaticScanning(controller);
                       },
+                    ),
+                    IgnorePointer(
+                      child: CustomPaint(
+                        painter: DetectionOverlayPainter(_detections),
+                      ),
                     ),
                     if (_cameraController == null && _cameraError == null)
                       const Center(
@@ -493,27 +530,13 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.58), borderRadius: BorderRadius.circular(14)),
                         child: Text(
-                          _scanStatus ?? 'Place an object in view, then tap Scan for objects.',
+                          _scanStatus,
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: Colors.white, fontSize: 12),
                         ),
                       ),
                     ),
                   ],
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _cameraController == null || _scanning ? null : _scanForObjects,
-                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB8D9C5), foregroundColor: const Color(0xFF10251C), padding: const EdgeInsets.symmetric(vertical: 15)),
-                  icon: _scanning
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.center_focus_strong),
-                  label: Text(_scanning ? 'Scanning…' : 'Scan for objects'),
                 ),
               ),
             ),
@@ -534,4 +557,47 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       ),
     );
   }
+}
+
+class DetectionOverlayPainter extends CustomPainter {
+  DetectionOverlayPainter(this.detections);
+  final List<ObjectDetection> detections;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final border = Paint()
+      ..color = const Color(0xFFFF5252)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3;
+    final marker = Paint()..color = const Color(0xFFFF5252);
+    for (final detection in detections) {
+      final rect = Rect.fromCenter(
+        center: Offset(detection.centerX * size.width, detection.centerY * size.height),
+        width: detection.width * size.width,
+        height: detection.height * size.height,
+      );
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      canvas.drawRect(rect, border);
+      final triangle = Path()
+        ..moveTo(rect.center.dx, rect.top - 12)
+        ..lineTo(rect.center.dx - 8, rect.top - 26)
+        ..lineTo(rect.center.dx + 8, rect.top - 26)
+        ..close();
+      canvas.drawPath(triangle, marker);
+      final label = TextPainter(
+        text: TextSpan(
+          text: '${detection.label} ${(detection.confidence * 100).round()}%',
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: size.width * 0.6);
+      final labelRect = Rect.fromLTWH(rect.left, (rect.top - label.height - 5).clamp(0, size.height), label.width + 10, label.height + 6);
+      canvas.drawRRect(RRect.fromRectAndRadius(labelRect, const Radius.circular(5)), marker);
+      label.paint(canvas, Offset(labelRect.left + 5, labelRect.top + 3));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant DetectionOverlayPainter oldDelegate) =>
+      oldDelegate.detections != detections;
 }
