@@ -396,10 +396,23 @@ class _ItemDialogState extends State<ItemDialog> {
     try {
       List<XFile> picked;
       if (Platform.isMacOS) {
-        final paths = await _macPhotoChannel.invokeListMethod<String>('pickMultipleImages');
-        picked = (paths ?? const <String>[]).map((path) => XFile(path)).toList();
+        // Read the selected file inside the native security scope, then use
+        // a temporary app-owned copy so Flutter can safely preview it.
+        final selected = await _macPhotoChannel.invokeMapMethod<String, dynamic>('pickImage');
+        if (selected == null) {
+          picked = <XFile>[];
+        } else {
+          final name = selected['name'] as String? ?? 'reference.jpg';
+          final bytes = selected['bytes'] as Uint8List;
+          final temp = await getTemporaryDirectory();
+          final safeName = name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+          final file = File('${temp.path}/findmythings_${DateTime.now().microsecondsSinceEpoch}_$safeName');
+          await file.writeAsBytes(bytes, flush: true);
+          picked = <XFile>[XFile(file.path)];
+        }
       } else {
-        picked = await widget.picker.pickMultiImage(imageQuality: 88, maxWidth: 1800);
+        final photo = await widget.picker.pickImage(source: ImageSource.gallery, imageQuality: 88, maxWidth: 1800);
+        picked = photo == null ? <XFile>[] : <XFile>[photo];
       }
       if (picked.isNotEmpty && mounted) {
         setState(() => _newPhotos.addAll(picked));
@@ -431,7 +444,7 @@ class _ItemDialogState extends State<ItemDialog> {
           ),
           ListTile(
             leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Choose multiple photos'),
+            title: const Text('Choose a photo'),
             onTap: () => Navigator.pop(c, ImageSource.gallery),
           ),
           ListTile(
@@ -479,7 +492,7 @@ class _ItemDialogState extends State<ItemDialog> {
         const SizedBox(height:16),
         Row(children:[const Expanded(child:Text('Reference photos',style:TextStyle(fontWeight:FontWeight.w800))),Text('$total added',style:const TextStyle(color:muted,fontSize:12))]),
         const SizedBox(height:9),
-        if(total==0) Container(height:112,width:double.infinity,decoration:BoxDecoration(color:const Color(0xFFE8EEE8),borderRadius:BorderRadius.circular(15)),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.photo_library_outlined,size:30,color:green),SizedBox(height:6),Text('Add a few angles for better matching',style:TextStyle(color:muted,fontSize:12))]))
+        if(total==0) Container(height:112,width:double.infinity,decoration:BoxDecoration(color:const Color(0xFFE8EEE8),borderRadius:BorderRadius.circular(15)),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.photo_library_outlined,size:30,color:green),SizedBox(height:6),Text('Add one clear photo of your belonging',style:TextStyle(color:muted,fontSize:12))]))
         else SizedBox(height:104,child:ListView(scrollDirection:Axis.horizontal,children:[
           ...existing.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p),width:104,height:104,fit:BoxFit.cover)))),
           ..._newPhotos.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p.path),width:104,height:104,fit:BoxFit.cover)))),
