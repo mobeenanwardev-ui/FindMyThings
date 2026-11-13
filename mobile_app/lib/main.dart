@@ -373,6 +373,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   bool _streamStarted = false;
   final AiModelService _ai = AiModelService();
   DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
+  int _inferenceCount = 0;
 
   Future<void> _startAutomaticScanning(CameraMacOSController controller) async {
     if (_streamStarted) return;
@@ -381,7 +382,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
       await controller.startImageStream((CameraImageData? frame) {
         if (frame == null || !mounted || _processingFrame) return;
         final now = DateTime.now();
-        if (now.difference(_lastInference).inMilliseconds < 1800) return;
+        if (now.difference(_lastInference).inMilliseconds < 2800) return;
         _lastInference = now;
         _processFrame(frame);
       });
@@ -395,31 +396,35 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   Future<void> _processFrame(CameraImageData frame) async {
     _processingFrame = true;
     try {
-      final converted = img.Image(width: frame.width, height: frame.height);
+      // Downsample directly from the camera buffer. Avoid decoding every
+      // full-resolution pixel on the UI isolate on an 8 GB laptop.
+      const modelSize = 640;
+      final converted = img.Image(width: modelSize, height: modelSize);
       final bytes = frame.bytes;
-      for (var y = 0; y < frame.height; y++) {
-        final row = y * frame.bytesPerRow;
-        for (var x = 0; x < frame.width; x++) {
-          final offset = row + x * 4;
+      for (var y = 0; y < modelSize; y++) {
+        final sourceY = (y * frame.height / modelSize).floor();
+        final row = sourceY * frame.bytesPerRow;
+        for (var x = 0; x < modelSize; x++) {
+          final sourceX = (x * frame.width / modelSize).floor();
+          final offset = row + sourceX * 4;
           if (offset + 3 >= bytes.length) continue;
-          // camera_macos documents image stream pixels as ARGB8888.
-          converted.setPixelRgba(
-            x, y,
-            bytes[offset + 1],
-            bytes[offset + 2],
-            bytes[offset + 3],
-            bytes[offset],
-          );
+          converted.setPixelRgba(x, y, bytes[offset + 1], bytes[offset + 2], bytes[offset + 3], bytes[offset]);
         }
       }
       final directory = await getTemporaryDirectory();
       await directory.create(recursive: true);
-      final modelInput = img.copyResize(converted, width: 640, height: 640);
+      final modelInput = converted;
       final imageFile = File('${directory.path}/findmythings_live_frame.jpg');
       await imageFile.writeAsBytes(img.encodeJpg(modelInput, quality: 65), flush: true);
       var results = await _ai.detectObjects(imageFile.path);
+      _inferenceCount++;
       final referencePath = widget.item.photo;
-      if (results.isNotEmpty && referencePath != null && await File(referencePath).exists()) {
+      // CLIP is heavier than YOLO: run it every third detection pass while
+      // keeping YOLO overlays responsive between similarity updates.
+      if (results.isNotEmpty &&
+          _inferenceCount % 3 == 0 &&
+          referencePath != null &&
+          await File(referencePath).exists()) {
         results = await _ai.matchDetectedRegions(
           referencePath: referencePath,
           framePath: imageFile.path,
