@@ -1,11 +1,57 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
+import 'dart:math' as math;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:camera_macos/camera_macos.dart';
 import 'ai_model_service.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
+
+// Camera pixel conversion and JPEG encoding run away from Flutter's UI isolate.
+// The model still receives a fixed 640x640 letterboxed image, preserving the
+// camera frame's aspect ratio instead of stretching it.
+Uint8List _encodeCameraFrame({
+  required TransferableTypedData transferableBytes,
+  required int width,
+  required int height,
+  required int bytesPerRow,
+}) {
+  const modelSize = 640;
+  final bytes = transferableBytes.materialize().asUint8List();
+  final scale = math.min(modelSize / width, modelSize / height);
+  final resizedWidth = (width * scale).round().clamp(1, modelSize);
+  final resizedHeight = (height * scale).round().clamp(1, modelSize);
+  final padX = (modelSize - resizedWidth) ~/ 2;
+  final padY = (modelSize - resizedHeight) ~/ 2;
+  final canvas = img.Image(width: modelSize, height: modelSize);
+  // Black letterbox background.
+  for (var y = 0; y < modelSize; y++) {
+    for (var x = 0; x < modelSize; x++) {
+      canvas.setPixelRgb(x, y, 0, 0, 0);
+    }
+  }
+  for (var y = 0; y < resizedHeight; y++) {
+    final sourceY = (y * height / resizedHeight).floor();
+    final row = sourceY * bytesPerRow;
+    for (var x = 0; x < resizedWidth; x++) {
+      final sourceX = (x * width / resizedWidth).floor();
+      final offset = row + sourceX * 4;
+      if (offset + 3 >= bytes.length) continue;
+      canvas.setPixelRgba(
+        padX + x,
+        padY + y,
+        bytes[offset + 1],
+        bytes[offset + 2],
+        bytes[offset + 3],
+        bytes[offset],
+      );
+    }
+  }
+  return Uint8List.fromList(img.encodeJpg(canvas, quality: 72));
+}
 
 void main() => runApp(const FindMyThingsApp());
 
@@ -374,6 +420,8 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   final AiModelService _ai = AiModelService();
   DateTime _lastInference = DateTime.fromMillisecondsSinceEpoch(0);
   int _inferenceCount = 0;
+  String? _frameFilePath;
+  double _cameraAspectRatio = 4 / 3;
 
   Future<void> _startAutomaticScanning(CameraMacOSController controller) async {
     if (_streamStarted) return;
@@ -381,6 +429,9 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
     try {
       await controller.startImageStream((CameraImageData? frame) {
         if (frame == null || !mounted || _processingFrame) return;
+        if (frame.width > 0 && frame.height > 0) {
+          _cameraAspectRatio = frame.width / frame.height;
+        }
         final now = DateTime.now();
         if (now.difference(_lastInference).inMilliseconds < 2800) return;
         _lastInference = now;
@@ -396,50 +447,73 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
   Future<void> _processFrame(CameraImageData frame) async {
     _processingFrame = true;
     try {
-      // Downsample directly from the camera buffer. Avoid decoding every
-      // full-resolution pixel on the UI isolate on an 8 GB laptop.
-      const modelSize = 640;
-      final converted = img.Image(width: modelSize, height: modelSize);
-      final bytes = frame.bytes;
-      for (var y = 0; y < modelSize; y++) {
-        final sourceY = (y * frame.height / modelSize).floor();
-        final row = sourceY * frame.bytesPerRow;
-        for (var x = 0; x < modelSize; x++) {
-          final sourceX = (x * frame.width / modelSize).floor();
-          final offset = row + sourceX * 4;
-          if (offset + 3 >= bytes.length) continue;
-          converted.setPixelRgba(x, y, bytes[offset + 1], bytes[offset + 2], bytes[offset + 3], bytes[offset]);
-        }
-      }
+      // Copy the camera buffer into transferable memory, then do pixel
+      // conversion and JPEG encoding on a worker isolate.
+      final transferable = TransferableTypedData.fromList([frame.bytes]);
+      final encodedBytes = await Isolate.run(
+        () => _encodeCameraFrame(
+          transferableBytes: transferable,
+          width: frame.width,
+          height: frame.height,
+          bytesPerRow: frame.bytesPerRow,
+        ),
+      );
+
       final directory = await getTemporaryDirectory();
       await directory.create(recursive: true);
-      final modelInput = converted;
-      final imageFile = File('${directory.path}/findmythings_live_frame.jpg');
-      await imageFile.writeAsBytes(img.encodeJpg(modelInput, quality: 65), flush: true);
+      _frameFilePath ??= '${directory.path}/findmythings_live_frame.jpg';
+      final imageFile = File(_frameFilePath!);
+      await imageFile.writeAsBytes(encodedBytes, flush: false);
+
       var results = await _ai.detectObjects(imageFile.path);
       _inferenceCount++;
       final referencePath = widget.item.photo;
-      // CLIP is heavier than YOLO: run it every third detection pass while
-      // keeping YOLO overlays responsive between similarity updates.
+      // CLIP is deliberately less frequent than YOLO. It compares the
+      // highest-confidence proposals only, while the preview stays live.
       if (results.isNotEmpty &&
-          _inferenceCount % 3 == 0 &&
+          _inferenceCount % 4 == 0 &&
           referencePath != null &&
           await File(referencePath).exists()) {
         results = await _ai.matchDetectedRegions(
           referencePath: referencePath,
           framePath: imageFile.path,
-          detections: results,
+          detections: results.take(1).toList(),
         );
       }
+
+      // YOLO coordinates refer to the square letterboxed model input.
+      // Convert them back to the original camera frame before painting.
+      final scale = math.min(640 / frame.width, 640 / frame.height);
+      final resizedWidth = frame.width * scale;
+      final resizedHeight = frame.height * scale;
+      final padX = (640 - resizedWidth) / 2;
+      final padY = (640 - resizedHeight) / 2;
+      final cameraDetections = results.map((d) {
+        final left = (d.centerX * 640 - padX) / resizedWidth;
+        final top = (d.centerY * 640 - padY) / resizedHeight;
+        final boxWidth = d.width * 640 / resizedWidth;
+        final boxHeight = d.height * 640 / resizedHeight;
+        return ObjectDetection(
+          label: d.label,
+          confidence: d.confidence,
+          centerX: left.clamp(0.0, 1.0),
+          centerY: top.clamp(0.0, 1.0),
+          width: boxWidth.clamp(0.0, 1.0),
+          height: boxHeight.clamp(0.0, 1.0),
+          similarity: d.similarity,
+          isMatch: d.isMatch,
+        );
+      }).where((d) => d.width > 0.01 && d.height > 0.01).toList();
+
       if (!mounted) return;
-      final matches = results.where((d) => d.isMatch).length;
+      final matches = cameraDetections.where((d) => d.isMatch).length;
       setState(() {
-        _detections = results;
-        _scanStatus = results.isEmpty
+        _detections = cameraDetections;
+        _scanStatus = cameraDetections.isEmpty
             ? 'Scanning… no recognised objects in this frame.'
             : matches > 0
-                ? '${widget.item.name} possible match found • ${matches} region(s) matched'
-                : 'Scanning: ${results.length} objects • comparing with saved ${widget.item.name}';
+                ? '${widget.item.name} possible match found'
+                : 'Scanning: ${cameraDetections.length} objects • comparing with saved ${widget.item.name}';
       });
     } catch (error) {
       if (mounted) setState(() => _scanStatus = 'Live detection error: $error');
@@ -520,7 +594,7 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
                     ),
                     IgnorePointer(
                       child: CustomPaint(
-                        painter: DetectionOverlayPainter(_detections),
+                        painter: DetectionOverlayPainter(_detections, _cameraAspectRatio),
                       ),
                     ),
                     if (_cameraController == null && _cameraError == null)
@@ -579,8 +653,9 @@ class _CameraFinderPageState extends State<CameraFinderPage> {
 }
 
 class DetectionOverlayPainter extends CustomPainter {
-  DetectionOverlayPainter(this.detections);
+  DetectionOverlayPainter(this.detections, this.sourceAspectRatio);
   final List<ObjectDetection> detections;
+  final double sourceAspectRatio;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -590,11 +665,21 @@ class DetectionOverlayPainter extends CustomPainter {
       final color = detection.isMatch ? const Color(0xFF38E06F) : const Color(0xFFFF5252);
       border.color = color;
       marker.color = color;
+      // Match the camera preview's BoxFit.cover crop exactly.
+      final safeAspect = sourceAspectRatio > 0 ? sourceAspectRatio : 4 / 3;
+      final scale = math.max(size.width / (safeAspect * 1000), size.height / 1000);
+      final renderedWidth = safeAspect * 1000 * scale;
+      final renderedHeight = 1000 * scale;
+      final cropX = (renderedWidth - size.width) / 2;
+      final cropY = (renderedHeight - size.height) / 2;
       final rect = Rect.fromCenter(
-        center: Offset(detection.centerX * size.width, detection.centerY * size.height),
-        width: detection.width * size.width,
-        height: detection.height * size.height,
-      );
+        center: Offset(
+          detection.centerX * renderedWidth - cropX,
+          detection.centerY * renderedHeight - cropY,
+        ),
+        width: detection.width * renderedWidth,
+        height: detection.height * renderedHeight,
+      ).intersect(Offset.zero & size);
       if (rect.width <= 0 || rect.height <= 0) continue;
       canvas.drawRect(rect, border);
       final triangle = Path()
@@ -618,5 +703,5 @@ class DetectionOverlayPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DetectionOverlayPainter oldDelegate) =>
-      oldDelegate.detections != detections;
+      oldDelegate.detections != detections || oldDelegate.sourceAspectRatio != sourceAspectRatio;
 }
