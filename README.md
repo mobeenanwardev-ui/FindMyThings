@@ -34,32 +34,18 @@ The Python proof of concept follows the same broad idea using Ultralytics YOLO t
 
 See **[ARCHITECTURE.md](ARCHITECTURE.md)** for component responsibilities, data flow, model details, design decisions, and platform constraints.
 
-    Flutter UI + local inventory
-              |
-              v
-       Camera frame stream
-              |
-              v
-      Frame preprocessing
-       (640x640 letterbox)
-              |
-              v
-       YOLOv8n detection
-              |
-              v
-       Candidate region crop
-              |
-              v
-      CLIP image embedding <--- saved reference photo embeddings
-              |
-              v
-      Cosine similarity / match decision
-              |
-              v
-      Apple Vision tracking (macOS prototype)
-              |
-              v
-          Detection overlay
+~~~mermaid
+flowchart TD
+  A[Flutter UI and local inventory] --> B[Camera frame stream]
+  B --> C[Frame preprocessing: 640 x 640 letterbox]
+  C --> D[YOLOv8n detection]
+  D --> E[Candidate region crop]
+  E --> F[CLIP image embedding]
+  R[Saved reference photo embeddings] --> G[Cosine similarity and match decision]
+  F --> G
+  G --> H[Apple Vision tracking - macOS prototype]
+  H --> I[Detection overlay]
+~~~
 
 ## Technology
 
