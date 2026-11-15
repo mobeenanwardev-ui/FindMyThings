@@ -13,22 +13,25 @@ This is a prototype architecture. The repository currently has two related but s
 
 ## 2. System context
 
-    flowchart LR
-      User[User] --> UI[Flutter application]
-      UI --> Inventory[Local inventory and photos]
-      UI --> Camera[macOS camera stream]
-      Camera --> Pipeline[On-device vision pipeline]
-      Pipeline --> UI
-      Inventory --> Pipeline
-      Pipeline --> Vision[Apple Vision tracker]
-      Vision --> UI
+~~~mermaid
+flowchart LR
+  User[User] --> UI[Flutter application]
+  UI --> Inventory[Local inventory and photos]
+  UI --> Camera[macOS camera stream]
+  Camera --> Pipeline[On-device vision pipeline]
+  Pipeline --> UI
+  Inventory --> Pipeline
+  Pipeline --> Vision[Apple Vision tracker]
+  Vision --> UI
+~~~
 
 The mobile application does not depend on a remote API for its current inventory or inference workflow. Item metadata and reference images are kept on the device, while the YOLO and CLIP models are bundled as Core ML assets.
 
 ## 3. High-level component architecture
 
-    flowchart TB
-      subgraph App[Flutter application — mobile_app]
+~~~mermaid
+flowchart TB
+  subgraph App[Flutter application - mobile_app]
         Screens[UI and navigation]
         Inventory[Belonging model and inventory state]
         Persistence[JSON + local image files]
@@ -43,20 +46,17 @@ The mobile application does not depend on a remote API for its current inventory
         Preprocess --> AIS
         AIS --> Overlay
         Overlay --> Camera
-      end
-
-      subgraph Models[Bundled Core ML models]
+  end
+  subgraph Models[Bundled Core ML models]
         YOLO[YOLOv8n]
         CLIP[CLIP image encoder]
-      end
-
-      subgraph Native[macOS native layer]
+  end
+  subgraph Native[macOS native layer]
         Bridge[Flutter MethodChannel]
         VN[Apple Vision object tracker]
         Bridge --> VN
-      end
-
-      AIS --> YOLO
+  end
+  AIS --> YOLO
       AIS --> CLIP
       Camera <--> Bridge
 
@@ -70,7 +70,8 @@ The mobile application does not depend on a remote API for its current inventory
         Entry --> Detect
         Entry --> Match
         Entry --> Config
-      end
+  end
+~~~
 
 The Python proof of concept is not a service called by Flutter. It is a separate executable experiment that demonstrates the detection-plus-embedding-matching concept with desktop Python libraries.
 
@@ -156,8 +157,9 @@ Tracking is an optimization for temporal continuity; it does not replace visual 
 
 ## 5. End-to-end live search sequence
 
-    sequenceDiagram
-      actor User
+~~~mermaid
+sequenceDiagram
+  actor User
       participant UI as Flutter UI
       participant Store as Local inventory
       participant Cam as macOS camera
@@ -190,7 +192,8 @@ Tracking is an optimization for temporal continuity; it does not replace visual 
       else No candidate passes threshold
         UI->>UI: Continue scanning
       end
-      UI-->>User: Live boxes and scan status
+  UI-->>User: Live boxes and scan status
+~~~
 
 ## 6. Earlier Python proof of concept
 
