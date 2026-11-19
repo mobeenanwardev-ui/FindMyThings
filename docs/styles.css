@@ -32,3 +32,18 @@
 #detection-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;z-index:2}
 .camera-reticle{z-index:1;pointer-events:none}
 .camera-state{z-index:3}
+
+/* Full-screen mobile scanner: use the whole phone display, not a small dialog. */
+@media(max-width:600px){
+  .scan-dialog{position:fixed;inset:0;margin:0;width:100vw;height:100dvh;max-width:none;max-height:none;padding:0;border-radius:0;overflow:hidden}
+  .scan-card{width:100%;height:100dvh;max-height:100dvh;border-radius:0;padding:calc(env(safe-area-inset-top) + 12px) 14px calc(env(safe-area-inset-bottom) + 12px);display:flex;flex-direction:column;overflow:auto}
+  .scan-card .dialog-heading{margin-bottom:10px}
+  .scan-target{flex:0 0 auto;margin-bottom:9px}
+  .camera-frame{flex:1 1 auto;min-height:42vh;aspect-ratio:auto;border-radius:16px}
+  .camera-frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  #detection-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .camera-reticle{display:none}
+  .match-panel{flex:0 0 auto;margin-top:9px}
+  .scan-stop{flex:0 0 auto;margin-top:9px}
+  .scan-card .privacy-note{flex:0 0 auto;margin:8px 0 0}
+}
