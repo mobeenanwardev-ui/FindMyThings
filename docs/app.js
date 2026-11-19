@@ -160,7 +160,7 @@
   // On-device visual similarity scanner. MobileNet produces image features locally;
   // it does not provide a trained "wallet" detector or guarantee an exact match.
   const scan = {
-    dialog: $('scan-dialog'), video: $('camera-video'), reference: $('scan-reference'),
+    dialog: $('scan-dialog'), video: $('camera-video'), overlay: $('detection-overlay'), reference: $('scan-reference'),
     itemName: $('scan-item-name'), state: $('camera-state'), label: $('match-label'),
     score: $('match-score'), bar: $('match-bar'), guidance: $('match-guidance')
   };
@@ -203,6 +203,8 @@
     cameraStream = null;
     scan.video.pause();
     scan.video.srcObject = null;
+    const overlayContext = scan.overlay.getContext('2d');
+    overlayContext.clearRect(0, 0, scan.overlay.width, scan.overlay.height);
     if (scanTargetUrl) URL.revokeObjectURL(scanTargetUrl);
     scanTargetUrl = null;
     scanBusy = false;
@@ -239,6 +241,8 @@
       if (!scanActive) { cameraStream.getTracks().forEach(track => track.stop()); return; }
       scan.video.srcObject = cameraStream;
       await scan.video.play();
+      scan.overlay.width = scan.video.videoWidth;
+      scan.overlay.height = scan.video.videoHeight;
       scan.state.textContent = 'Camera active';
       scan.label.textContent = 'Looking for visual similarity';
       scan.guidance.textContent = 'Move slowly, change the angle, and bring the item into the centre of the frame.';
@@ -253,38 +257,92 @@
       cameraStream = null;
     }
   }
+  function proposeRegions(width, height) {
+    // Overlapping windows at several scales. These are visual candidate regions,
+    // not semantic object detections.
+    const regions = [];
+    const scales = [
+      {w: 0.42, h: 0.56, xs: [0.22, 0.50, 0.78], ys: [0.22, 0.50, 0.78]},
+      {w: 0.66, h: 0.78, xs: [0.25, 0.50, 0.75], ys: [0.28, 0.50, 0.72]}
+    ];
+    for (const scale of scales) {
+      const rw = Math.round(width * scale.w), rh = Math.round(height * scale.h);
+      for (const cy of scale.ys) for (const cx of scale.xs) {
+        const x = Math.max(0, Math.min(width-rw, Math.round(cx*width-rw/2)));
+        const y = Math.max(0, Math.min(height-rh, Math.round(cy*height-rh/2)));
+        if (!regions.some(r => Math.abs(r.x-x)<8 && Math.abs(r.y-y)<8 && Math.abs(r.w-rw)<8)) {
+          regions.push({x,y,w:rw,h:rh,score:-1});
+        }
+      }
+    }
+    return regions;
+  }
+  function drawCandidates(regions, width, height) {
+    const canvas = scan.overlay;
+    const ctx = canvas.getContext('2d');
+    if (canvas.width !== width || canvas.height !== height) { canvas.width=width; canvas.height=height; }
+    ctx.clearRect(0,0,width,height);
+    const ranked = [...regions].sort((a,b)=>b.score-a.score).slice(0,3);
+    ranked.forEach((r,index)=>{
+      if (r.score < 0.35) return;
+      const strong = r.score >= 0.72;
+      ctx.strokeStyle = strong ? '#20e66b' : '#ffd34d';
+      ctx.lineWidth = Math.max(3, Math.round(width/240));
+      ctx.setLineDash(index===0 ? [] : [10,7]);
+      ctx.strokeRect(r.x,r.y,r.w,r.h);
+      ctx.setLineDash([]);
+      ctx.fillStyle = strong ? '#20e66b' : '#ffd34d';
+      const label = Math.round(r.score*100)+'%';
+      ctx.font = 'bold '+Math.max(16,Math.round(width/32))+'px sans-serif';
+      const tw=ctx.measureText(label).width;
+      const labelHeight=Math.max(24,width/28);
+      ctx.fillRect(r.x,r.y-labelHeight,tw+12,labelHeight);
+      ctx.fillStyle='#10251a';
+      ctx.fillText(label,r.x+6,r.y-7);
+    });
+  }
   function scanFrame() {
     if (!scanActive || !cameraStream || scanBusy) return;
-    if (scan.video.readyState < 2) {
-      scanTimer = setTimeout(scanFrame, 500);
-      return;
-    }
+    if (scan.video.readyState < 2) { scanTimer=setTimeout(scanFrame,500); return; }
     scanBusy = true;
     try {
-      const currentEmbedding = extractEmbedding(scan.video);
-      const similarity = Math.max(0, Math.min(1, cosineSimilarity(targetEmbedding, currentEmbedding)));
-      const percent = Math.round(similarity * 100);
-      scan.score.textContent = percent + '%';
-      scan.bar.style.width = percent + '%';
-      if (similarity >= 0.84) {
-        scan.label.textContent = 'Strong visual similarity';
-        scan.state.textContent = 'Possible match in view';
-        scan.guidance.textContent = 'A possible match is visible. Check the object carefully; this score is not proof that it is your item.';
-      } else if (similarity >= 0.70) {
-        scan.label.textContent = 'Some visual similarity';
-        scan.state.textContent = 'Keep scanning…';
-        scan.guidance.textContent = 'Not confident yet. Move closer, centre the object, and try another angle.';
-      } else {
-        scan.label.textContent = 'No clear visual match';
-        scan.state.textContent = 'Searching surroundings…';
-        scan.guidance.textContent = 'Try a different angle and make the item fill more of the camera view.';
+      const width=scan.video.videoWidth, height=scan.video.videoHeight;
+      const regions=proposeRegions(width,height);
+      const crop=document.createElement('canvas');
+      crop.width=224; crop.height=224;
+      const ctx=crop.getContext('2d',{willReadFrequently:true});
+      let best={score:-1};
+      for(const region of regions){
+        ctx.clearRect(0,0,224,224);
+        ctx.drawImage(scan.video,region.x,region.y,region.w,region.h,0,0,224,224);
+        const embedding=extractEmbedding(crop);
+        region.score=Math.max(0,Math.min(1,cosineSimilarity(targetEmbedding,embedding)));
+        if(region.score>best.score) best=region;
       }
-    } catch (error) {
-      scan.label.textContent = 'Could not analyse this frame';
-      scan.guidance.textContent = error.message || 'Try again.';
-    } finally {
-      scanBusy = false;
-      if (scanActive) scanTimer = setTimeout(scanFrame, 1000);
+      drawCandidates(regions,width,height);
+      const similarity=Math.max(0,best.score);
+      const percent=Math.round(similarity*100);
+      scan.score.textContent=percent+'%';
+      scan.bar.style.width=percent+'%';
+      if(similarity>=0.78){
+        scan.label.textContent='Possible match in highlighted region';
+        scan.state.textContent='Possible object location highlighted';
+        scan.guidance.textContent='Green boxes show visually similar candidate regions. Check the object yourself; this experimental score is not proof of identity.';
+      }else if(similarity>=0.58){
+        scan.label.textContent='Weak visual candidate';
+        scan.state.textContent='Scanning candidate regions…';
+        scan.guidance.textContent='Yellow boxes are weaker visual matches. Move slowly and try different angles and distances.';
+      }else{
+        scan.label.textContent='No strong candidate found';
+        scan.state.textContent='Searching different regions…';
+        scan.guidance.textContent='No region looks sufficiently similar yet. Use a clear reference photo with the object filling most of the image.';
+      }
+    }catch(error){
+      scan.label.textContent='Could not analyse this frame';
+      scan.guidance.textContent=error.message||'Try again.';
+    }finally{
+      scanBusy=false;
+      if(scanActive) scanTimer=setTimeout(scanFrame,1400);
     }
   }
 
