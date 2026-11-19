@@ -166,6 +166,7 @@
   };
   let cameraStream = null;
   let visionModel = null;
+  let objectDetector = null;
   let scanTimer = null;
   let scanBusy = false;
   let scanActive = false;
@@ -179,12 +180,15 @@
   }
   async function getVisionModel() {
     if (visionModel) return visionModel;
-    if (!window.tf || !window.mobilenet) throw new Error('The visual model could not be loaded. Check your internet connection and reload the app.');
+    if (!window.tf || !window.mobilenet || !window.cocoSsd) throw new Error('The visual models could not be loaded. Check your internet connection and reload the app.');
     scan.state.textContent = 'Loading visual model…';
     scan.guidance.textContent = 'Downloading MobileNet for on-device image comparison. This can take a little while the first time.';
     await tf.ready();
     try { await tf.setBackend('webgl'); await tf.ready(); } catch (_) { /* Use the available TensorFlow.js backend. */ }
     visionModel = await mobilenet.load({version: 2, alpha: 1.0});
+    scan.state.textContent = 'Loading object detector…';
+    scan.guidance.textContent = 'Preparing on-device object detection. This may take a little longer the first time.';
+    objectDetector = await cocoSsd.load({base: 'lite_mobilenet_v2'});
     return visionModel;
   }
   function extractEmbedding(source) {
@@ -257,90 +261,76 @@
       cameraStream = null;
     }
   }
-  function proposeRegions(width, height) {
-    // Denser small windows make the overlay follow a tighter candidate area.
-    const regions = [];
-    const addGrid = (fractionW, fractionH, columns, rows) => {
-      const rw = Math.round(width * fractionW), rh = Math.round(height * fractionH);
-      for (let row=0; row<rows; row++) for (let col=0; col<columns; col++) {
-        const cx = columns===1 ? 0.5 : 0.06 + col * (0.88/(columns-1));
-        const cy = rows===1 ? 0.5 : 0.06 + row * (0.88/(rows-1));
-        const x = Math.max(0,Math.min(width-rw,Math.round(cx*width-rw/2)));
-        const y = Math.max(0,Math.min(height-rh,Math.round(cy*height-rh/2)));
-        regions.push({x,y,w:rw,h:rh,score:-1});
-      }
-    };
-    addGrid(0.22,0.28,5,5);
-    addGrid(0.34,0.42,4,4);
-    addGrid(0.52,0.62,3,3);
-    return regions;
-  }
-  function drawCandidates(regions, width, height) {
+  function drawDetection(detection, similarity, width, height) {
     const canvas = scan.overlay;
     const ctx = canvas.getContext('2d');
     if (canvas.width !== width || canvas.height !== height) { canvas.width=width; canvas.height=height; }
     ctx.clearRect(0,0,width,height);
-    // Show only the single best candidate. Multiple overlapping boxes looked
-    // like one oversized detection on a phone screen.
-    const best = regions.reduce((winner, region) => region.score > winner.score ? region : winner, {score:-1});
-    if (!best || best.score < 0.35) return;
-    const strong = best.score >= 0.68;
+    if (!detection || similarity < 0.58) return;
+    const [x,y,w,h] = detection.bbox;
+    const strong = similarity >= 0.72;
     ctx.strokeStyle = strong ? '#20e66b' : '#ffd34d';
-    ctx.lineWidth = Math.max(3, Math.round(width/260));
-    ctx.setLineDash([]);
-    ctx.strokeRect(best.x,best.y,best.w,best.h);
-    ctx.fillStyle = strong ? '#20e66b' : '#ffd34d';
-    const label = Math.round(best.score*100)+'%';
-    ctx.font = 'bold '+Math.max(15,Math.round(width/34))+'px sans-serif';
+    ctx.lineWidth = Math.max(3, Math.round(width/320));
+    ctx.strokeRect(x,y,w,h);
+    const label = detection.class + ' · ' + Math.round(similarity*100)+'%';
+    ctx.font = 'bold '+Math.max(13,Math.round(width/48))+'px sans-serif';
     const tw=ctx.measureText(label).width;
-    const labelHeight=Math.max(23,width/30);
-    const labelY=Math.max(labelHeight,best.y);
-    ctx.fillRect(best.x,labelY-labelHeight,tw+12,labelHeight);
+    const labelHeight=Math.max(22,width/34);
+    const labelY=Math.max(labelHeight,y);
+    ctx.fillStyle = strong ? '#20e66b' : '#ffd34d';
+    ctx.fillRect(x,labelY-labelHeight,Math.min(width-x,tw+12),labelHeight);
     ctx.fillStyle='#10251a';
-    ctx.fillText(label,best.x+6,labelY-6);
+    ctx.fillText(label,x+6,labelY-6);
   }
-  function scanFrame() {
+  async function scanFrame() {
     if (!scanActive || !cameraStream || scanBusy) return;
     if (scan.video.readyState < 2) { scanTimer=setTimeout(scanFrame,500); return; }
     scanBusy = true;
     try {
       const width=scan.video.videoWidth, height=scan.video.videoHeight;
-      const regions=proposeRegions(width,height);
+      const detections = await objectDetector.detect(scan.video, 12);
       const crop=document.createElement('canvas');
       crop.width=224; crop.height=224;
       const ctx=crop.getContext('2d',{willReadFrequently:true});
-      let best={score:-1};
-      for(const region of regions){
+      let best=null;
+      for(const detection of detections){
+        if(detection.score < 0.35) continue;
+        const [x,y,w,h]=detection.bbox;
+        if(w<24 || h<24) continue;
         ctx.clearRect(0,0,224,224);
-        ctx.drawImage(scan.video,region.x,region.y,region.w,region.h,0,0,224,224);
+        ctx.drawImage(scan.video,x,y,w,h,0,0,224,224);
         const embedding=extractEmbedding(crop);
-        region.score=Math.max(0,Math.min(1,cosineSimilarity(targetEmbedding,embedding)));
-        if(region.score>best.score) best=region;
+        const similarity=Math.max(0,Math.min(1,cosineSimilarity(targetEmbedding,embedding)));
+        if(!best || similarity>best.similarity) best={detection,similarity};
       }
-      drawCandidates(regions,width,height);
-      const similarity=Math.max(0,best.score);
+      drawDetection(best?.detection,best?.similarity ?? 0,width,height);
+      const similarity=best?.similarity ?? 0;
       const percent=Math.round(similarity*100);
-      scan.score.textContent=percent+'%';
+      scan.score.textContent=best ? percent+'%' : '—';
       scan.bar.style.width=percent+'%';
-      if(similarity>=0.72){
-        scan.label.textContent='Possible match in highlighted region';
-        scan.state.textContent='Possible object location highlighted';
-        scan.guidance.textContent='Green boxes show visually similar candidate regions. Check the object yourself; this experimental score is not proof of identity.';
-      }else if(similarity>=0.48){
-        scan.label.textContent='Weak visual candidate';
-        scan.state.textContent='Scanning candidate regions…';
-        scan.guidance.textContent='Yellow boxes are weaker visual matches. Move slowly and try different angles and distances.';
+      if(!best){
+        scan.label.textContent='No supported object detected';
+        scan.state.textContent='Searching for recognisable objects…';
+        scan.guidance.textContent='The detector has not found a supported object in this frame. Try better lighting and move the camera slowly.';
+      }else if(similarity>=0.72){
+        scan.label.textContent='Possible '+best.detection.class+' match';
+        scan.state.textContent='Possible match highlighted';
+        scan.guidance.textContent='The box comes from the object detector. Similarity is an estimate, not proof that this is your saved item.';
+      }else if(similarity>=0.58){
+        scan.label.textContent='Weak '+best.detection.class+' candidate';
+        scan.state.textContent='Checking detected objects…';
+        scan.guidance.textContent='A detected object looks somewhat similar to your reference. Try another angle or distance.';
       }else{
-        scan.label.textContent='No strong candidate found';
-        scan.state.textContent='Searching different regions…';
-        scan.guidance.textContent='No region looks sufficiently similar yet. Use a clear reference photo with the object filling most of the image.';
+        scan.label.textContent='No close visual match';
+        scan.state.textContent='Objects detected; comparing…';
+        scan.guidance.textContent='Objects are being detected, but none looks sufficiently similar to the saved photo yet.';
       }
     }catch(error){
       scan.label.textContent='Could not analyse this frame';
       scan.guidance.textContent=error.message||'Try again.';
     }finally{
       scanBusy=false;
-      if(scanActive) scanTimer=setTimeout(scanFrame,2200);
+      if(scanActive) scanTimer=setTimeout(scanFrame,900);
     }
   }
 
