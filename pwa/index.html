@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#17483b">
+  <meta name="description" content="A private, offline-first inventory for the things you want to find.">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FindMyThings">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <title>FindMyThings</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="FindMyThings home">
+        <span class="brand-mark">⌖</span>
+        <span><strong>FindMyThings</strong><small>Your things, easy to find.</small></span>
+      </a>
+      <span class="offline-pill"><i></i><span id="connection-label">On this device</span></span>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">YOUR PERSONAL INVENTORY</p>
+          <h1 id="item-count">0 things saved</h1>
+          <p>Keep a photo of the things that matter.</p>
+        </div>
+        <div class="hero-symbol" aria-hidden="true">⌖</div>
+      </section>
+
+      <section class="section-head">
+        <div><p class="eyebrow dark">YOUR COLLECTION</p><h2>Your things</h2></div>
+        <button id="add-button" class="primary-button" type="button"><span>＋</span> Add a thing</button>
+      </section>
+
+      <label class="search-box">
+        <span aria-hidden="true">⌕</span>
+        <input id="search-input" type="search" placeholder="Search your things" autocomplete="off">
+      </label>
+
+      <section id="empty-state" class="empty-state">
+        <div class="empty-icon">▧</div>
+        <h3 id="empty-title">Nothing here yet</h3>
+        <p id="empty-copy">Add your first belonging with a reference photo.</p>
+        <button id="empty-add-button" class="primary-button" type="button">＋ Add your first thing</button>
+      </section>
+      <section id="items-grid" class="items-grid" aria-live="polite"></section>
+    </main>
+
+    <footer><span>Private by design.</span><span>Photos stay on this device.</span></footer>
+  </div>
+
+  <dialog id="item-dialog" class="editor-dialog">
+    <form id="item-form" class="editor-card">
+      <div class="dialog-heading">
+        <div><p class="eyebrow dark">YOUR INVENTORY</p><h2 id="dialog-title">Add a thing</h2></div>
+        <button id="close-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <label class="field-label" for="item-name">What is it called?</label>
+      <input id="item-name" class="text-field" name="name" maxlength="70" placeholder="For example: Blue backpack" required>
+      <label class="field-label" for="item-category">Category</label>
+      <input id="item-category" class="text-field" name="category" maxlength="40" placeholder="Everyday items" value="My belongings">
+      <div class="photo-heading"><span class="field-label">Reference photo</span><span id="photo-status" class="subtle">One photo</span></div>
+      <label id="photo-drop" class="photo-drop" for="photo-input">
+        <img id="photo-preview" alt="Selected reference photo preview" hidden>
+        <span id="photo-placeholder" class="photo-placeholder">
+          <span class="photo-glyph">▧</span>
+          <strong>Choose a photo</strong>
+          <small>Pick an image from your photo library</small>
+          <span class="choose-button">Choose from Photos</span>
+        </span>
+      </label>
+      <input id="photo-input" class="visually-hidden" type="file" accept="image/*">
+      <button id="remove-photo" class="text-button" type="button" hidden>Remove photo</button>
+      <p id="form-error" class="form-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button id="cancel-button" class="secondary-button" type="button">Cancel</button>
+        <button id="save-button" class="primary-button" type="submit">Save belonging</button>
+      </div>
+      <p class="privacy-note">Your photo is saved locally in this browser. It is not uploaded to a server.</p>
+    </form>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="./app.js" defer></script>
+</body>
+</html>
