@@ -172,6 +172,8 @@
   let scanActive = false;
   let targetEmbedding = null;
   let scanTargetUrl = null;
+  const mobileScannerMode = window.matchMedia('(max-width: 600px)').matches;
+  let mobileTrackedBox = null;
 
   function cosineSimilarity(a, b) {
     let dot = 0, aa = 0, bb = 0;
@@ -240,11 +242,14 @@
       targetEmbedding = extractEmbedding(referenceImage);
       cameraStream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: {facingMode: {ideal: 'environment'}, width: {ideal: 640}, height: {ideal: 480}}
+        video: mobileScannerMode
+          ? {facingMode: {ideal: 'environment'}, width: {ideal: 1280}, height: {ideal: 720}}
+          : {facingMode: {ideal: 'environment'}, width: {ideal: 640}, height: {ideal: 480}}
       });
       if (!scanActive) { cameraStream.getTracks().forEach(track => track.stop()); return; }
       scan.video.srcObject = cameraStream;
       await scan.video.play();
+      mobileTrackedBox = null;
       scan.overlay.width = scan.video.videoWidth;
       scan.overlay.height = scan.video.videoHeight;
       scan.state.textContent = 'Camera active';
@@ -282,7 +287,99 @@
     ctx.fillStyle='#10251a';
     ctx.fillText(label,x+6,labelY-6);
   }
+  function mobileIoU(a,b) {
+    if(!a || !b) return 0;
+    const ax=a[0], ay=a[1], aw=a[2], ah=a[3], bx=b[0], by=b[1], bw=b[2], bh=b[3];
+    const ix=Math.max(0,Math.min(ax+aw,bx+bw)-Math.max(ax,bx));
+    const iy=Math.max(0,Math.min(ay+ah,by+bh)-Math.max(ay,by));
+    const intersection=ix*iy, union=aw*ah+bw*bh-intersection;
+    return union>0 ? intersection/union : 0;
+  }
+  function drawMobileDetection(detection, similarity, width, height) {
+    const canvas=scan.overlay, ctx=canvas.getContext('2d');
+    if(canvas.width!==width || canvas.height!==height){canvas.width=width;canvas.height=height;}
+    ctx.clearRect(0,0,width,height);
+    if(!detection || similarity<0.48) return;
+    const [x,y,w,h]=detection.bbox;
+    const strong=similarity>=0.68;
+    ctx.strokeStyle=strong?'#20e66b':'#ffd34d';
+    ctx.lineWidth=Math.max(2,Math.round(width/480));
+    ctx.strokeRect(x,y,w,h);
+    const label=detection.class+' · '+Math.round(similarity*100)+'%';
+    ctx.font='bold '+Math.max(12,Math.round(width/62))+'px sans-serif';
+    const labelHeight=Math.max(20,width/42), labelY=Math.max(labelHeight,y);
+    ctx.fillStyle=strong?'#20e66b':'#ffd34d';
+    ctx.fillRect(x,labelY-labelHeight,Math.min(width-x,ctx.measureText(label).width+10),labelHeight);
+    ctx.fillStyle='#10251a'; ctx.fillText(label,x+5,labelY-5);
+  }
+  async function scanFrameMobile() {
+    if(!scanActive || !cameraStream || scanBusy) return;
+    if(scan.video.readyState<2){scanTimer=setTimeout(scanFrameMobile,350);return;}
+    scanBusy=true;
+    try{
+      const width=scan.video.videoWidth,height=scan.video.videoHeight;
+      const detections=await objectDetector.detect(scan.video,20);
+      const crop=document.createElement('canvas'); crop.width=224; crop.height=224;
+      const ctx=crop.getContext('2d',{willReadFrequently:true});
+      let best=null;
+      for(const detection of detections){
+        if(detection.score<0.20) continue;
+        const [x,y,w,h]=detection.bbox;
+        if(w<18 || h<18) continue;
+        const padX=w*0.08,padY=h*0.08;
+        const left=Math.max(0,x-padX),top=Math.max(0,y-padY);
+        const right=Math.min(width,x+w+padX),bottom=Math.min(height,y+h+padY);
+        ctx.clearRect(0,0,224,224);
+        ctx.drawImage(scan.video,left,top,right-left,bottom-top,0,0,224,224);
+        const padded=extractEmbedding(crop);
+        ctx.clearRect(0,0,224,224);
+        ctx.drawImage(scan.video,x,y,w,h,0,0,224,224);
+        const tight=extractEmbedding(crop);
+        const score=Math.max(cosineSimilarity(targetEmbedding,padded),cosineSimilarity(targetEmbedding,tight));
+        const similarity=Math.max(0,Math.min(1,score));
+        const candidate={detection,similarity};
+        const continuity=mobileIoU(mobileTrackedBox,detection.bbox);
+        candidate.rank=similarity+(continuity>0.12?Math.min(0.08,continuity*0.12):0);
+        if(!best || candidate.rank>best.rank) best=candidate;
+      }
+      if(best){
+        const box=best.detection.bbox;
+        if(mobileIoU(mobileTrackedBox,box)>0.08){
+          mobileTrackedBox=box.map((v,i)=>v*0.58+mobileTrackedBox[i]*0.42);
+          best.detection.bbox=mobileTrackedBox;
+        }else mobileTrackedBox=box.slice();
+      }else mobileTrackedBox=null;
+      drawMobileDetection(best?.detection,best?.similarity??0,width,height);
+      const similarity=best?.similarity??0,percent=Math.round(similarity*100);
+      scan.score.textContent=best?percent+'%':'—';
+      scan.bar.style.width=percent+'%';
+      if(!best){
+        scan.label.textContent='No recognisable object yet';
+        scan.state.textContent='Searching the camera view…';
+        scan.guidance.textContent='Try brighter light, move a little closer, and keep the whole item visible.';
+      }else if(similarity>=0.68){
+        scan.label.textContent='Possible '+best.detection.class+' match';
+        scan.state.textContent='Possible match highlighted';
+        scan.guidance.textContent='The box follows a detected object. Similarity is approximate; check that it is your item.';
+      }else if(similarity>=0.48){
+        scan.label.textContent='Checking '+best.detection.class;
+        scan.state.textContent='Possible object highlighted';
+        scan.guidance.textContent='This object has some visual similarity. Try a closer view or another angle.';
+      }else{
+        scan.label.textContent='Object detected, not matched';
+        scan.state.textContent='Comparing detected objects…';
+        scan.guidance.textContent='Objects are visible to the detector, but none closely resembles your saved photo yet.';
+      }
+    }catch(error){
+      scan.label.textContent='Could not analyse this frame';
+      scan.guidance.textContent=error.message||'Try again.';
+    }finally{
+      scanBusy=false;
+      if(scanActive) scanTimer=setTimeout(scanFrameMobile,700);
+    }
+  }
   async function scanFrame() {
+    if(mobileScannerMode){ scanFrameMobile(); return; }
     if (!scanActive || !cameraStream || scanBusy) return;
     if (scan.video.readyState < 2) { scanTimer=setTimeout(scanFrame,500); return; }
     scanBusy = true;
