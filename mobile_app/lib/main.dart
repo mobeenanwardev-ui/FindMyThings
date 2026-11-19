@@ -515,206 +515,219 @@ class _ItemEditorPageState extends State<ItemEditorPage> {
     );
   }
 
+  Widget _buildEditorSurface(String? photoPath) {
+    final hasPhoto = photoPath != null;
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 150),
+      decoration: BoxDecoration(
+        color: _dragging ? const Color(0xFFE2EEE5) : cream,
+        border: _dragging
+            ? Border.all(color: green, width: 3)
+            : Border.all(color: Colors.transparent, width: 3),
+      ),
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
+        children: [
+          const Text(
+            'Save a reference photo',
+            style: TextStyle(
+              fontSize: 23,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF202A24),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            Platform.isIOS
+                ? 'Choose a photo from your iPhone library.'
+                : 'Add a clear photo so FindMyThings knows what to look for.',
+            style: const TextStyle(color: muted),
+          ),
+          const SizedBox(height: 24),
+          TextField(
+            controller: _name,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'What is it called?',
+              hintText: 'For example: Blue backpack',
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _category,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Category',
+              hintText: 'For example: Everyday items',
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'Reference photo',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(minHeight: 230),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(
+                color: _dragging ? green : const Color(0xFFDDE4DC),
+                width: _dragging ? 2 : 1,
+              ),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: photoPath != null
+                ? Stack(
+                    children: [
+                      Center(
+                        child: Image.file(
+                          File(photoPath),
+                          height: 270,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Padding(
+                            padding: EdgeInsets.all(24),
+                            child: Text('The selected image could not be previewed.'),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 12,
+                        top: 12,
+                        child: IconButton.filled(
+                          onPressed: () => setState(() {
+                            _newPhotos.clear();
+                            _removeExisting = true;
+                          }),
+                          icon: const Icon(Icons.close),
+                          tooltip: 'Remove photo',
+                        ),
+                      ),
+                    ],
+                  )
+                : Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _dragging
+                              ? Icons.file_download_done_rounded
+                              : Icons.add_photo_alternate_outlined,
+                          size: 54,
+                          color: green,
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          _dragging ? 'Release to add this photo' : 'Drag a photo here',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: green,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          Platform.isIOS
+                              ? 'Tap the button below to choose a photo from Photos.'
+                              : 'Drop an image from Finder into this large area.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: muted),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+          if (!Platform.isMacOS) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _pickForMobile,
+                icon: const Icon(Icons.photo_library_outlined),
+                label: Text(
+                  _busy
+                      ? 'Opening photos…'
+                      : (hasPhoto ? 'Change photo' : 'Choose from Photos'),
+                ),
+              ),
+            ),
+          ],
+          if (hasPhoto)
+            TextButton.icon(
+              onPressed: () => setState(() {
+                _newPhotos.clear();
+                _removeExisting = true;
+              }),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Remove reference photo'),
+            ),
+          if (_busy) ...[
+            const SizedBox(height: 8),
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+            const Text('Importing photo…', textAlign: TextAlign.center),
+          ],
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: const TextStyle(color: Colors.red, fontSize: 13),
+            ),
+          ],
+          const SizedBox(height: 26),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: _busy ? null : _save,
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('Save belonging'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: double.infinity,
+            child: TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final existing = _existingPhotos
         .where((path) => File(path).existsSync())
         .toList();
-    final hasNewPhoto = _newPhotos.isNotEmpty;
-    final hasPhoto = existing.isNotEmpty || hasNewPhoto;
-    final photoPath = hasNewPhoto
+    final photoPath = _newPhotos.isNotEmpty
         ? _newPhotos.first.path
         : (existing.isNotEmpty ? existing.first : null);
+    final editorSurface = _buildEditorSurface(photoPath);
+    final pageBody = Platform.isMacOS
+        ? DropTarget(
+            onDragEntered: (_) {
+              if (mounted) setState(() => _dragging = true);
+            },
+            onDragExited: (_) {
+              if (mounted) setState(() => _dragging = false);
+            },
+            onDragDone: _handleDroppedFiles,
+            child: editorSurface,
+          )
+        : editorSurface;
 
     return Scaffold(
       backgroundColor: cream,
       appBar: AppBar(
         title: Text(widget.item == null ? 'Add a thing' : 'Edit your thing'),
       ),
-      body: SafeArea(
-        child: DropTarget(
-          onDragEntered: (_) {
-            if (mounted) setState(() => _dragging = true);
-          },
-          onDragExited: (_) {
-            if (mounted) setState(() => _dragging = false);
-          },
-          onDragDone: _handleDroppedFiles,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            decoration: BoxDecoration(
-              color: _dragging ? const Color(0xFFE2EEE5) : cream,
-              border: _dragging
-                  ? Border.all(color: green, width: 3)
-                  : Border.all(color: Colors.transparent, width: 3),
-            ),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
-              children: [
-                const Text(
-                  'Save a reference photo',
-                  style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF202A24),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Add a clear photo so FindMyThings knows what to look for.',
-                  style: TextStyle(color: muted),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: _name,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'What is it called?',
-                    hintText: 'For example: Blue backpack',
-                  ),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: _category,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    hintText: 'For example: Everyday items',
-                  ),
-                ),
-                const SizedBox(height: 24),
-                const Text(
-                  'Reference photo',
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  constraints: const BoxConstraints(minHeight: 230),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(
-                      color: _dragging ? green : const Color(0xFFDDE4DC),
-                      width: _dragging ? 2 : 1,
-                    ),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: photoPath != null
-                      ? Stack(
-                          children: [
-                            Center(
-                              child: Image.file(
-                                File(photoPath),
-                                height: 270,
-                                width: double.infinity,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, __, ___) => const Padding(
-                                  padding: EdgeInsets.all(24),
-                                  child: Text('The selected image could not be previewed.'),
-                                ),
-                              ),
-                            ),
-                            Positioned(
-                              right: 12,
-                              top: 12,
-                              child: IconButton.filled(
-                                onPressed: () => setState(() {
-                                  _newPhotos.clear();
-                                  _removeExisting = true;
-                                }),
-                                icon: const Icon(Icons.close),
-                                tooltip: 'Remove photo',
-                              ),
-                            ),
-                          ],
-                        )
-                      : Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                _dragging
-                                    ? Icons.file_download_done_rounded
-                                    : Icons.add_photo_alternate_outlined,
-                                size: 54,
-                                color: green,
-                              ),
-                              const SizedBox(height: 14),
-                              Text(
-                                _dragging
-                                    ? 'Release to add this photo'
-                                    : 'Drag a photo here',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                  color: green,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Drop an image from Finder anywhere in this large area.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: muted),
-                              ),
-                              if (!Platform.isMacOS) ...[
-                                const SizedBox(height: 14),
-                                OutlinedButton.icon(
-                                  onPressed: _busy ? null : _pickForMobile,
-                                  icon: const Icon(Icons.photo_library_outlined),
-                                  label: const Text('Choose from photos'),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                ),
-                const SizedBox(height: 12),
-                if (hasPhoto)
-                  TextButton.icon(
-                    onPressed: () => setState(() {
-                      _newPhotos.clear();
-                      _removeExisting = true;
-                    }),
-                    icon: const Icon(Icons.delete_outline),
-                    label: const Text('Remove reference photo'),
-                  ),
-                if (_busy) ...[
-                  const SizedBox(height: 8),
-                  const LinearProgressIndicator(),
-                  const SizedBox(height: 8),
-                  const Text('Importing photo…', textAlign: TextAlign.center),
-                ],
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red, fontSize: 13),
-                  ),
-                ],
-                const SizedBox(height: 26),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _busy ? null : _save,
-                    icon: const Icon(Icons.check_rounded),
-                    label: const Text('Save belonging'),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancel'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      body: SafeArea(child: pageBody),
     );
   }
 }
