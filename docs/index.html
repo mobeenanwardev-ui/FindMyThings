@@ -86,7 +86,33 @@
       <p class="privacy-note">Your photo is saved locally in this browser. It is not uploaded to a server.</p>
     </form>
   </dialog>
+  <dialog id="scan-dialog" class="scan-dialog">
+    <section class="scan-card">
+      <div class="dialog-heading">
+        <div><p class="eyebrow dark">LIVE OBJECT FINDER</p><h2 id="scan-title">Find your thing</h2></div>
+        <button id="scan-close" class="icon-button" type="button" aria-label="Close scanner">×</button>
+      </div>
+      <div class="scan-target">
+        <img id="scan-reference" alt="Reference photo of the selected belonging">
+        <div><strong id="scan-item-name">Selected item</strong><small>Move the camera slowly and keep the item visible.</small></div>
+      </div>
+      <div class="camera-frame">
+        <video id="camera-video" autoplay muted playsinline></video>
+        <div class="camera-reticle" aria-hidden="true"></div>
+        <span id="camera-state" class="camera-state">Starting camera…</span>
+      </div>
+      <div class="match-panel">
+        <div class="match-line"><span id="match-label">Preparing visual comparison</span><strong id="match-score">—</strong></div>
+        <div class="match-track"><span id="match-bar"></span></div>
+        <p id="match-guidance">The first scan downloads the visual model. Internet is required for this initial setup.</p>
+      </div>
+      <button id="scan-stop" class="secondary-button scan-stop" type="button">Stop camera</button>
+      <p class="privacy-note">Camera frames are analysed in this browser and are not uploaded. This is a visual-similarity prototype, not guaranteed object recognition.</p>
+    </section>
+  </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js"></script>
   <script src="./app.js" defer></script>
 </body>
 </html>
