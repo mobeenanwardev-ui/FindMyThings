@@ -167,9 +167,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _edit({Belonging? item}) async {
-    final result = await showDialog<_FormResult>(
-      context: context, barrierDismissible: false,
-      builder: (_) => ItemDialog(picker: _picker, item: item));
+    final result = await Navigator.of(context).push<_FormResult>(
+      MaterialPageRoute(
+        builder: (_) => ItemEditorPage(item: item, picker: _picker),
+      ),
+    );
     if (!mounted || result == null) return;
     final savedPaths = result.removePhotos ? <String>[] : List<String>.from(item?.referencePhotos ?? const <String>[]);
     try {
@@ -378,27 +380,105 @@ class _FormResult {
   final String name,category; final List<XFile> photos; final bool removePhotos;
 }
 
-class ItemDialog extends StatefulWidget {
-  const ItemDialog({super.key,required this.picker,this.item});
-  final ImagePicker picker; final Belonging? item;
-  @override State<ItemDialog> createState()=>_ItemDialogState();
+class ItemEditorPage extends StatefulWidget {
+  const ItemEditorPage({super.key, required this.picker, this.item});
+  final ImagePicker picker;
+  final Belonging? item;
+
+  @override
+  State<ItemEditorPage> createState() => _ItemEditorPageState();
 }
 
-class _ItemDialogState extends State<ItemDialog> {
-  late final TextEditingController _name,_category;
+class _ItemEditorPageState extends State<ItemEditorPage> {
+  late final TextEditingController _name;
+  late final TextEditingController _category;
   final List<XFile> _newPhotos = [];
-  bool _removeAll=false,_busy=false,_dragging=false; String? _error;
-  List<String> get _existingPhotos => _removeAll ? const [] : (widget.item?.referencePhotos ?? const []);
-  @override void initState(){super.initState();_name=TextEditingController(text:widget.item?.name??'');_category=TextEditingController(text:widget.item?.category??'My belongings');}
-  @override void dispose(){_name.dispose();_category.dispose();super.dispose();}
+  bool _removeExisting = false;
+  bool _busy = false;
+  bool _dragging = false;
+  String? _error;
 
-  Future<void> _pick({ImageSource source = ImageSource.gallery}) async {
+  List<String> get _existingPhotos => _removeExisting
+      ? const []
+      : (widget.item?.referencePhotos ?? const []);
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.item?.name ?? '');
+    _category = TextEditingController(
+      text: widget.item?.category ?? 'My belongings',
+    );
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _category.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleDroppedFiles(DropDoneDetails details) async {
     if (_busy) return;
-    setState(() { _busy = true; _error = null; });
+    const allowed = {'jpg', 'jpeg', 'png', 'heic', 'webp', 'gif', 'bmp'};
+    XFile? selected;
+    for (final file in details.files) {
+      final pieces = file.name.toLowerCase().split('.');
+      if (pieces.length > 1 && allowed.contains(pieces.last)) {
+        selected = file;
+        break;
+      }
+    }
+    if (selected == null) {
+      setState(() => _error = 'Please drop an image (JPG, PNG, HEIC or WEBP).');
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
     try {
-      // Restore the original single-image picker; no custom macOS panel.
+      final bytes = await selected.readAsBytes();
+      final extension = selected.name.split('.').last.toLowerCase();
+      final temp = await getTemporaryDirectory();
+      final staged = File(
+        '${temp.path}/findmythings_${DateTime.now().microsecondsSinceEpoch}.$extension',
+      );
+      await staged.writeAsBytes(bytes, flush: true);
+      if (!mounted) return;
+      setState(() {
+        _newPhotos
+          ..clear()
+          ..add(XFile(staged.path));
+        _removeExisting = true;
+        _dragging = false;
+        _error = null;
+      });
+    } catch (error, stack) {
+      debugPrint('Image drop failed: $error\\n$stack');
+      if (mounted) {
+        setState(() => _error = 'Could not import that image: $error');
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _dragging = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pickForMobile() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
       final photo = await widget.picker.pickImage(
-        source: source,
+        source: ImageSource.gallery,
         imageQuality: 88,
         maxWidth: 1800,
       );
@@ -407,100 +487,51 @@ class _ItemDialogState extends State<ItemDialog> {
           _newPhotos
             ..clear()
             ..add(photo);
+          _removeExisting = true;
         });
       }
-    } catch (error, stack) {
-      debugPrint('Photo picker error: $error\\n$stack');
-      if (mounted) setState(() => _error = 'Could not open photo: $error');
+    } catch (error) {
+      if (mounted) setState(() => _error = 'Could not choose photo: $error');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _handleDroppedFiles(DropDoneDetails details) async {
-    if (_busy) return;
-    XFile? dropped;
-    const imageExtensions = {'jpg', 'jpeg', 'png', 'heic', 'webp', 'gif', 'bmp'};
-    for (final file in details.files) {
-      final parts = file.name.toLowerCase().split('.');
-      if (parts.length > 1 && imageExtensions.contains(parts.last)) {
-        dropped = file;
-        break;
-      }
-    }
-    if (dropped == null) {
-      if (mounted) setState(() => _error = 'Please drop an image file (JPG, PNG, HEIC or WEBP).');
+  void _save() {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
+      setState(() => _error = 'Give your thing a name first.');
       return;
     }
-    setState(() { _busy = true; _error = null; });
-    try {
-      // Read the dropped file while macOS grants the drag-and-drop access,
-      // then stage it inside the app's temporary directory.
-      final bytes = await dropped.readAsBytes();
-      final extension = dropped.name.split('.').last.toLowerCase();
-      final directory = await getTemporaryDirectory();
-      final staged = File('${directory.path}/findmythings_${DateTime.now().microsecondsSinceEpoch}.$extension');
-      await staged.writeAsBytes(bytes, flush: true);
-      if (mounted) {
-        setState(() {
-          _newPhotos
-            ..clear()
-            ..add(XFile(staged.path));
-          _dragging = false;
-        });
-      }
-    } catch (error, stack) {
-      debugPrint('Dropped image import error: $error\\n$stack');
-      if (mounted) setState(() => _error = 'Could not import that image: $error');
-    } finally {
-      if (mounted) setState(() { _busy = false; _dragging = false; });
-    }
-  }
-
-  Future<void> _photoMenu() async {
-    if (Platform.isMacOS) {
-      setState(() => _error = 'Drag an image from Finder into this window.');
-      return;
-    }
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      builder: (c) => SafeArea(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Padding(
-            padding: EdgeInsets.all(12),
-            child: Text('Add a photo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-          ),
-          ListTile(
-            leading: const Icon(Icons.photo_library_outlined),
-            title: const Text('Choose from photos'),
-            onTap: () => Navigator.pop(c, ImageSource.gallery),
-          ),
-          ListTile(
-            leading: const Icon(Icons.camera_alt_outlined),
-            title: const Text('Take a photo'),
-            onTap: () => Navigator.pop(c, ImageSource.camera),
-          ),
-          const SizedBox(height: 12),
-        ]),
+    Navigator.of(context).pop(
+      _FormResult(
+        name: name,
+        category: _category.text.trim().isEmpty
+            ? 'My belongings'
+            : _category.text.trim(),
+        photos: List<XFile>.from(_newPhotos),
+        removePhotos: _removeExisting,
       ),
     );
-    if (source != null) await _pick(source: source);
   }
 
-  void _submit(){
-    final n=_name.text.trim();
-    if(n.isEmpty){setState(()=>_error='Give your thing a name first.');return;}
-    Navigator.pop(context,_FormResult(name:n,category:_category.text.trim().isEmpty?'My belongings':_category.text.trim(),photos:_newPhotos,removePhotos:_removeAll));
-  }
+  @override
+  Widget build(BuildContext context) {
+    final existing = _existingPhotos
+        .where((path) => File(path).existsSync())
+        .toList();
+    final hasNewPhoto = _newPhotos.isNotEmpty;
+    final hasPhoto = existing.isNotEmpty || hasNewPhoto;
+    final photoPath = hasNewPhoto
+        ? _newPhotos.first.path
+        : (existing.isNotEmpty ? existing.first : null);
 
-  @override Widget build(BuildContext context){
-    final existing=_existingPhotos.where((p)=>File(p).existsSync()).toList();
-    final total=existing.length+_newPhotos.length;
-    return AlertDialog(backgroundColor:const Color(0xFFFFFEFA),
-      title:Text(widget.item==null?'Add a thing':'Edit your thing',style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800)),
-      content: SingleChildScrollView(
+    return Scaffold(
+      backgroundColor: cream,
+      appBar: AppBar(
+        title: Text(widget.item == null ? 'Add a thing' : 'Edit your thing'),
+      ),
+      body: SafeArea(
         child: DropTarget(
           onDragEntered: (_) {
             if (mounted) setState(() => _dragging = true);
@@ -509,57 +540,184 @@ class _ItemDialogState extends State<ItemDialog> {
             if (mounted) setState(() => _dragging = false);
           },
           onDragDone: _handleDroppedFiles,
-          child: Container(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
             decoration: BoxDecoration(
-              border: _dragging ? Border.all(color: green, width: 2) : null,
-              borderRadius: BorderRadius.circular(16),
-              color: _dragging ? const Color(0xFFE8EEE8) : null,
+              color: _dragging ? const Color(0xFFE2EEE5) : cream,
+              border: _dragging
+                  ? Border.all(color: green, width: 3)
+                  : Border.all(color: Colors.transparent, width: 3),
             ),
-            padding: const EdgeInsets.all(4),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller:_name,autofocus:true,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'What is it called?',hintText:'For example: Blue backpack')),
-        const SizedBox(height:10),
-        TextField(controller:_category,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Category',hintText:'For example: Everyday items')),
-        const SizedBox(height:16),
-        Row(children:[const Expanded(child:Text('Reference photo',style:TextStyle(fontWeight:FontWeight.w800))),Text('$total added',style:const TextStyle(color:muted,fontSize:12))]),
-        const SizedBox(height:9),
-        if(total==0) Container(height:112,width:double.infinity,decoration:BoxDecoration(color:const Color(0xFFE8EEE8),borderRadius:BorderRadius.circular(15)),child:const Column(mainAxisAlignment:MainAxisAlignment.center,children:[Icon(Icons.photo_library_outlined,size:30,color:green),SizedBox(height:6),Text('Add one clear photo of your belonging',style:TextStyle(color:muted,fontSize:12))]))
-        else SizedBox(height:104,child:ListView(scrollDirection:Axis.horizontal,children:[
-          ...existing.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p),width:104,height:104,fit:BoxFit.cover)))),
-          ..._newPhotos.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p.path),width:104,height:104,fit:BoxFit.cover)))),
-        ])),
-        const SizedBox(height:10),
-        if (Platform.isMacOS)
-          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Drag a photo from Finder and drop it anywhere in this panel.', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 12)))
-        else
-          SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':(total > 0 ? 'Change photo' : 'Add a photo')))),
-        if(total>0)TextButton.icon(onPressed:()=>setState(()=>_removeAll=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove photo')),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 7),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red, fontSize: 12),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(22, 18, 22, 28),
+              children: [
+                const Text(
+                  'Save a reference photo',
+                  style: TextStyle(
+                    fontSize: 23,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF202A24),
                   ),
                 ),
-            ]),
+                const SizedBox(height: 6),
+                const Text(
+                  'Add a clear photo so FindMyThings knows what to look for.',
+                  style: TextStyle(color: muted),
+                ),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _name,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'What is it called?',
+                    hintText: 'For example: Blue backpack',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: _category,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    hintText: 'For example: Everyday items',
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Reference photo',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(minHeight: 230),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: _dragging ? green : const Color(0xFFDDE4DC),
+                      width: _dragging ? 2 : 1,
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: photoPath != null
+                      ? Stack(
+                          children: [
+                            Center(
+                              child: Image.file(
+                                File(photoPath),
+                                height: 270,
+                                width: double.infinity,
+                                fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Text('The selected image could not be previewed.'),
+                                ),
+                              ),
+                            ),
+                            Positioned(
+                              right: 12,
+                              top: 12,
+                              child: IconButton.filled(
+                                onPressed: () => setState(() {
+                                  _newPhotos.clear();
+                                  _removeExisting = true;
+                                }),
+                                icon: const Icon(Icons.close),
+                                tooltip: 'Remove photo',
+                              ),
+                            ),
+                          ],
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                _dragging
+                                    ? Icons.file_download_done_rounded
+                                    : Icons.add_photo_alternate_outlined,
+                                size: 54,
+                                color: green,
+                              ),
+                              const SizedBox(height: 14),
+                              Text(
+                                _dragging
+                                    ? 'Release to add this photo'
+                                    : 'Drag a photo here',
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: green,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Drop an image from Finder anywhere in this large area.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: muted),
+                              ),
+                              if (!Platform.isMacOS) ...[
+                                const SizedBox(height: 14),
+                                OutlinedButton.icon(
+                                  onPressed: _busy ? null : _pickForMobile,
+                                  icon: const Icon(Icons.photo_library_outlined),
+                                  label: const Text('Choose from photos'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 12),
+                if (hasPhoto)
+                  TextButton.icon(
+                    onPressed: () => setState(() {
+                      _newPhotos.clear();
+                      _removeExisting = true;
+                    }),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Remove reference photo'),
+                  ),
+                if (_busy) ...[
+                  const SizedBox(height: 8),
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 8),
+                  const Text('Importing photo…', textAlign: TextAlign.center),
+                ],
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                  ),
+                ],
+                const SizedBox(height: 26),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _busy ? null : _save,
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('Save belonging'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _busy ? null : _submit,
-          child: const Text('Save'),
-        ),
-      ],
     );
   }
 }
-
 
 class CameraFinderPage extends StatefulWidget {
   const CameraFinderPage({super.key, required this.item});
