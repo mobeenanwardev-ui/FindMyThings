@@ -80,13 +80,18 @@
     const edit = document.createElement('button');
     edit.type = 'button'; edit.className = 'small-button'; edit.textContent = 'Edit';
     edit.addEventListener('click', () => openEditor(item));
+    const find = document.createElement('button');
+    find.type = 'button'; find.className = 'small-button find-button';
+    find.textContent = 'Find it'; find.disabled = !item.photo;
+    find.title = item.photo ? 'Open camera to look for this item' : 'Add a reference photo first';
+    find.addEventListener('click', () => openScanner(item));
     const del = document.createElement('button');
     del.type = 'button'; del.className = 'small-button delete'; del.textContent = 'Delete';
     del.addEventListener('click', async () => {
       if (!confirm('Delete ' + item.name + ' from this device?')) return;
       await remove(item.id); await render(); notify('Belonging deleted');
     });
-    actions.append(edit, del); info.append(name, category, actions); card.append(info);
+    actions.append(edit, find, del); info.append(name, category, actions); card.append(info);
     return card;
   }
   async function render() {
@@ -150,6 +155,142 @@
       image.src = sourceUrl;
     });
   }
+
+
+  // On-device visual similarity scanner. MobileNet produces image features locally;
+  // it does not provide a trained "wallet" detector or guarantee an exact match.
+  const scan = {
+    dialog: $('scan-dialog'), video: $('camera-video'), reference: $('scan-reference'),
+    itemName: $('scan-item-name'), state: $('camera-state'), label: $('match-label'),
+    score: $('match-score'), bar: $('match-bar'), guidance: $('match-guidance')
+  };
+  let cameraStream = null;
+  let visionModel = null;
+  let scanTimer = null;
+  let scanBusy = false;
+  let scanActive = false;
+  let targetEmbedding = null;
+  let scanTargetUrl = null;
+
+  function cosineSimilarity(a, b) {
+    let dot = 0, aa = 0, bb = 0;
+    for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; aa += a[i] * a[i]; bb += b[i] * b[i]; }
+    return dot / (Math.sqrt(aa) * Math.sqrt(bb) || 1);
+  }
+  async function getVisionModel() {
+    if (visionModel) return visionModel;
+    if (!window.tf || !window.mobilenet) throw new Error('The visual model could not be loaded. Check your internet connection and reload the app.');
+    scan.state.textContent = 'Loading visual model…';
+    scan.guidance.textContent = 'Downloading MobileNet for on-device image comparison. This can take a little while the first time.';
+    await tf.ready();
+    try { await tf.setBackend('webgl'); await tf.ready(); } catch (_) { /* Use the available TensorFlow.js backend. */ }
+    visionModel = await mobilenet.load({version: 2, alpha: 1.0});
+    return visionModel;
+  }
+  function extractEmbedding(source) {
+    const output = visionModel.infer(source, true);
+    const flattened = output.flatten();
+    const values = Array.from(flattened.dataSync());
+    flattened.dispose();
+    output.dispose();
+    return values;
+  }
+  function stopScanner() {
+    scanActive = false;
+    if (scanTimer) clearTimeout(scanTimer);
+    scanTimer = null;
+    if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+    scan.video.pause();
+    scan.video.srcObject = null;
+    if (scanTargetUrl) URL.revokeObjectURL(scanTargetUrl);
+    scanTargetUrl = null;
+    scanBusy = false;
+    if (scan.dialog.open) scan.dialog.close();
+  }
+  async function openScanner(item) {
+    if (!item.photo) { notify('Add a reference photo before scanning'); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      notify('Camera access is not available in this browser');
+      return;
+    }
+    scan.itemName.textContent = item.name;
+    scan.reference.src = scanTargetUrl = URL.createObjectURL(item.photo);
+    scan.label.textContent = 'Preparing visual comparison';
+    scan.score.textContent = '—';
+    scan.bar.style.width = '0%';
+    scan.guidance.textContent = 'Allow camera access. Keep the item reasonably close and fill much of the camera view.';
+    scan.dialog.showModal();
+    scanActive = true;
+    try {
+      const model = await getVisionModel();
+      if (!scanActive) return;
+      const referenceImage = new Image();
+      referenceImage.src = scanTargetUrl;
+      await new Promise((resolve, reject) => {
+        referenceImage.onload = resolve;
+        referenceImage.onerror = () => reject(new Error('Could not read the saved reference photo.'));
+      });
+      targetEmbedding = extractEmbedding(referenceImage);
+      cameraStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {facingMode: {ideal: 'environment'}, width: {ideal: 640}, height: {ideal: 480}}
+      });
+      if (!scanActive) { cameraStream.getTracks().forEach(track => track.stop()); return; }
+      scan.video.srcObject = cameraStream;
+      await scan.video.play();
+      scan.state.textContent = 'Camera active';
+      scan.label.textContent = 'Looking for visual similarity';
+      scan.guidance.textContent = 'Move slowly, change the angle, and bring the item into the centre of the frame.';
+      scanFrame();
+    } catch (error) {
+      scan.state.textContent = 'Scanner could not start';
+      scan.label.textContent = 'Camera or model unavailable';
+      scan.guidance.textContent = error.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access for this website in iPhone Settings and try again.'
+        : (error.message || 'Check camera permission and internet access, then try again.');
+      if (cameraStream) cameraStream.getTracks().forEach(track => track.stop());
+      cameraStream = null;
+    }
+  }
+  function scanFrame() {
+    if (!scanActive || !cameraStream || scanBusy) return;
+    if (scan.video.readyState < 2) {
+      scanTimer = setTimeout(scanFrame, 500);
+      return;
+    }
+    scanBusy = true;
+    try {
+      const currentEmbedding = extractEmbedding(scan.video);
+      const similarity = Math.max(0, Math.min(1, cosineSimilarity(targetEmbedding, currentEmbedding)));
+      const percent = Math.round(similarity * 100);
+      scan.score.textContent = percent + '%';
+      scan.bar.style.width = percent + '%';
+      if (similarity >= 0.84) {
+        scan.label.textContent = 'Strong visual similarity';
+        scan.state.textContent = 'Possible match in view';
+        scan.guidance.textContent = 'A possible match is visible. Check the object carefully; this score is not proof that it is your item.';
+      } else if (similarity >= 0.70) {
+        scan.label.textContent = 'Some visual similarity';
+        scan.state.textContent = 'Keep scanning…';
+        scan.guidance.textContent = 'Not confident yet. Move closer, centre the object, and try another angle.';
+      } else {
+        scan.label.textContent = 'No clear visual match';
+        scan.state.textContent = 'Searching surroundings…';
+        scan.guidance.textContent = 'Try a different angle and make the item fill more of the camera view.';
+      }
+    } catch (error) {
+      scan.label.textContent = 'Could not analyse this frame';
+      scan.guidance.textContent = error.message || 'Try again.';
+    } finally {
+      scanBusy = false;
+      if (scanActive) scanTimer = setTimeout(scanFrame, 1000);
+    }
+  }
+
+  $('scan-close').addEventListener('click', stopScanner);
+  $('scan-stop').addEventListener('click', stopScanner);
+  scan.dialog.addEventListener('cancel', event => { event.preventDefault(); stopScanner(); });
 
   $('add-button').addEventListener('click', () => openEditor(null));
   $('empty-add-button').addEventListener('click', () => openEditor(null));
