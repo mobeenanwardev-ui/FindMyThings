@@ -188,7 +188,12 @@
     return visionModel;
   }
   function extractEmbedding(source) {
-    return tf.tidy(() => Array.from(visionModel.infer(source, true).flatten().dataSync()));
+    const output = visionModel.infer(source, true);
+    const flattened = output.flatten();
+    const values = Array.from(flattened.dataSync());
+    flattened.dispose();
+    output.dispose();
+    return values;
   }
   function stopScanner() {
     scanActive = false;
