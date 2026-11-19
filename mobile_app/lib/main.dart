@@ -9,7 +9,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:camera_macos/camera_macos.dart';
 import 'ai_model_service.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:native_image_picker_macos/native_image_picker_macos.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 
@@ -52,9 +52,6 @@ Uint8List _encodeCameraFrame(Map<String, Object> message) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isMacOS) {
-    await NativeImagePickerMacOS.registerWithIfSupported();
-  }
   runApp(const FindMyThingsApp());
 }
 
@@ -390,7 +387,7 @@ class ItemDialog extends StatefulWidget {
 class _ItemDialogState extends State<ItemDialog> {
   late final TextEditingController _name,_category;
   final List<XFile> _newPhotos = [];
-  bool _removeAll=false,_busy=false; String? _error;
+  bool _removeAll=false,_busy=false,_dragging=false; String? _error;
   List<String> get _existingPhotos => _removeAll ? const [] : (widget.item?.referencePhotos ?? const []);
   @override void initState(){super.initState();_name=TextEditingController(text:widget.item?.name??'');_category=TextEditingController(text:widget.item?.category??'My belongings');}
   @override void dispose(){_name.dispose();_category.dispose();super.dispose();}
@@ -420,9 +417,49 @@ class _ItemDialogState extends State<ItemDialog> {
     }
   }
 
+  Future<void> _handleDroppedFiles(DropDoneDetails details) async {
+    if (_busy) return;
+    XFile? dropped;
+    const imageExtensions = {'jpg', 'jpeg', 'png', 'heic', 'webp', 'gif', 'bmp'};
+    for (final file in details.files) {
+      final parts = file.name.toLowerCase().split('.');
+      if (parts.length > 1 && imageExtensions.contains(parts.last)) {
+        dropped = file;
+        break;
+      }
+    }
+    if (dropped == null) {
+      if (mounted) setState(() => _error = 'Please drop an image file (JPG, PNG, HEIC or WEBP).');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      // Read the dropped file while macOS grants the drag-and-drop access,
+      // then stage it inside the app's temporary directory.
+      final bytes = await dropped.readAsBytes();
+      final extension = dropped.name.split('.').last.toLowerCase();
+      final directory = await getTemporaryDirectory();
+      final staged = File('${directory.path}/findmythings_${DateTime.now().microsecondsSinceEpoch}.$extension');
+      await staged.writeAsBytes(bytes, flush: true);
+      if (mounted) {
+        setState(() {
+          _newPhotos
+            ..clear()
+            ..add(XFile(staged.path));
+          _dragging = false;
+        });
+      }
+    } catch (error, stack) {
+      debugPrint('Dropped image import error: $error\\n$stack');
+      if (mounted) setState(() => _error = 'Could not import that image: $error');
+    } finally {
+      if (mounted) setState(() { _busy = false; _dragging = false; });
+    }
+  }
+
   Future<void> _photoMenu() async {
     if (Platform.isMacOS) {
-      await _pick();
+      setState(() => _error = 'Drag an image from Finder into this window.');
       return;
     }
     final source = await showModalBottomSheet<ImageSource>(
@@ -463,7 +500,18 @@ class _ItemDialogState extends State<ItemDialog> {
     final total=existing.length+_newPhotos.length;
     return AlertDialog(backgroundColor:const Color(0xFFFFFEFA),
       title:Text(widget.item==null?'Add a thing':'Edit your thing',style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800)),
-      content:SingleChildScrollView(child:Column(mainAxisSize:MainAxisSize.min,children:[
+      content:SingleChildScrollView(child:DropTarget(
+        onDragEntered: (_) { if (mounted) setState(() => _dragging = true); },
+        onDragExited: (_) { if (mounted) setState(() => _dragging = false); },
+        onDragDone: _handleDroppedFiles,
+        child: Container(
+          decoration: BoxDecoration(
+            border: _dragging ? Border.all(color: green, width: 2) : null,
+            borderRadius: BorderRadius.circular(16),
+            color: _dragging ? const Color(0xFFE8EEE8) : null,
+          ),
+          padding: const EdgeInsets.all(4),
+          child: Column(mainAxisSize:MainAxisSize.min,children:[
         TextField(controller:_name,autofocus:true,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'What is it called?',hintText:'For example: Blue backpack')),
         const SizedBox(height:10),
         TextField(controller:_category,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Category',hintText:'For example: Everyday items')),
@@ -476,10 +524,14 @@ class _ItemDialogState extends State<ItemDialog> {
           ..._newPhotos.map((p)=>Padding(padding:const EdgeInsets.only(right:8),child:ClipRRect(borderRadius:BorderRadius.circular(12),child:Image.file(File(p.path),width:104,height:104,fit:BoxFit.cover)))),
         ])),
         const SizedBox(height:10),
-        SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':(total > 0 ? 'Change photo' : 'Add a photo')))),
+        if (Platform.isMacOS)
+          const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('Drag a photo from Finder and drop it anywhere in this panel.', textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 12)))
+        else
+          SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':(total > 0 ? 'Change photo' : 'Add a photo')))),
         if(total>0)TextButton.icon(onPressed:()=>setState(()=>_removeAll=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove photo')),
         if(_error!=null)Padding(padding:const EdgeInsets.only(top:7),child:Text(_error!,style:const TextStyle(color:Colors.red,fontSize:12))),
-      ])),
+      ]),
+      )),
       actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),FilledButton(onPressed:_busy?null:_submit,child:const Text('Save'))]);
   }
 }
