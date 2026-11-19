@@ -1,5 +1,5 @@
-const CACHE = 'findmythings-pwa-v8';
-const SHELL = ['./', './index.html', './styles.css?v=7', './app.js?v=8', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'findmythings-pwa-v9';
+const SHELL = ['./', './index.html', './styles.css?v=7', './app.js?v=9', './manifest.webmanifest', './icon.svg'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));
 });
