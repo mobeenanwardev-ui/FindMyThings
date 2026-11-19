@@ -258,22 +258,21 @@
     }
   }
   function proposeRegions(width, height) {
-    // Cover the complete camera image with overlapping windows at multiple scales.
+    // Denser small windows make the overlay follow a tighter candidate area.
     const regions = [];
     const addGrid = (fractionW, fractionH, columns, rows) => {
       const rw = Math.round(width * fractionW), rh = Math.round(height * fractionH);
       for (let row=0; row<rows; row++) for (let col=0; col<columns; col++) {
-        const cx = columns===1 ? 0.5 : 0.08 + col * (0.84/(columns-1));
-        const cy = rows===1 ? 0.5 : 0.08 + row * (0.84/(rows-1));
+        const cx = columns===1 ? 0.5 : 0.06 + col * (0.88/(columns-1));
+        const cy = rows===1 ? 0.5 : 0.06 + row * (0.88/(rows-1));
         const x = Math.max(0,Math.min(width-rw,Math.round(cx*width-rw/2)));
         const y = Math.max(0,Math.min(height-rh,Math.round(cy*height-rh/2)));
         regions.push({x,y,w:rw,h:rh,score:-1});
       }
     };
-    addGrid(0.38,0.42,3,3);
-    addGrid(0.62,0.68,2,2);
-    addGrid(0.86,0.90,1,1);
-    regions.push({x:0,y:0,w:width,h:height,score:-1});
+    addGrid(0.22,0.28,5,5);
+    addGrid(0.34,0.42,4,4);
+    addGrid(0.52,0.62,3,3);
     return regions;
   }
   function drawCandidates(regions, width, height) {
@@ -281,24 +280,24 @@
     const ctx = canvas.getContext('2d');
     if (canvas.width !== width || canvas.height !== height) { canvas.width=width; canvas.height=height; }
     ctx.clearRect(0,0,width,height);
-    const ranked = [...regions].sort((a,b)=>b.score-a.score).slice(0,3);
-    ranked.forEach((r,index)=>{
-      if (r.score < 0.25) return;
-      const strong = r.score >= 0.68;
-      ctx.strokeStyle = strong ? '#20e66b' : '#ffd34d';
-      ctx.lineWidth = Math.max(3, Math.round(width/240));
-      ctx.setLineDash(index===0 ? [] : [10,7]);
-      ctx.strokeRect(r.x,r.y,r.w,r.h);
-      ctx.setLineDash([]);
-      ctx.fillStyle = strong ? '#20e66b' : '#ffd34d';
-      const label = Math.round(r.score*100)+'%';
-      ctx.font = 'bold '+Math.max(16,Math.round(width/32))+'px sans-serif';
-      const tw=ctx.measureText(label).width;
-      const labelHeight=Math.max(24,width/28);
-      ctx.fillRect(r.x,r.y-labelHeight,tw+12,labelHeight);
-      ctx.fillStyle='#10251a';
-      ctx.fillText(label,r.x+6,r.y-7);
-    });
+    // Show only the single best candidate. Multiple overlapping boxes looked
+    // like one oversized detection on a phone screen.
+    const best = regions.reduce((winner, region) => region.score > winner.score ? region : winner, {score:-1});
+    if (!best || best.score < 0.35) return;
+    const strong = best.score >= 0.68;
+    ctx.strokeStyle = strong ? '#20e66b' : '#ffd34d';
+    ctx.lineWidth = Math.max(3, Math.round(width/260));
+    ctx.setLineDash([]);
+    ctx.strokeRect(best.x,best.y,best.w,best.h);
+    ctx.fillStyle = strong ? '#20e66b' : '#ffd34d';
+    const label = Math.round(best.score*100)+'%';
+    ctx.font = 'bold '+Math.max(15,Math.round(width/34))+'px sans-serif';
+    const tw=ctx.measureText(label).width;
+    const labelHeight=Math.max(23,width/30);
+    const labelY=Math.max(labelHeight,best.y);
+    ctx.fillRect(best.x,labelY-labelHeight,tw+12,labelHeight);
+    ctx.fillStyle='#10251a';
+    ctx.fillText(label,best.x+6,labelY-6);
   }
   function scanFrame() {
     if (!scanActive || !cameraStream || scanBusy) return;
@@ -341,7 +340,7 @@
       scan.guidance.textContent=error.message||'Try again.';
     }finally{
       scanBusy=false;
-      if(scanActive) scanTimer=setTimeout(scanFrame,1800);
+      if(scanActive) scanTimer=setTimeout(scanFrame,2200);
     }
   }
 
