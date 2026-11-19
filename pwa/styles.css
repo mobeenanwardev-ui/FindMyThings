@@ -25,3 +25,10 @@
 .item-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
 .item-actions .small-button{min-width:0;padding:10px 3px;font-size:11px;white-space:nowrap}
 .item-actions .find-button{display:block!important;visibility:visible!important;opacity:1!important;background:#17483b!important;color:#fff!important}
+
+/* Region proposal visualisation layer */
+.camera-frame{isolation:isolate}
+.camera-frame video{position:absolute;inset:0}
+#detection-overlay{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none;z-index:2}
+.camera-reticle{z-index:1;pointer-events:none}
+.camera-state{z-index:3}
