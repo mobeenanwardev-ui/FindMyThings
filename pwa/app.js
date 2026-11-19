@@ -258,23 +258,22 @@
     }
   }
   function proposeRegions(width, height) {
-    // Overlapping windows at several scales. These are visual candidate regions,
-    // not semantic object detections.
+    // Cover the complete camera image with overlapping windows at multiple scales.
     const regions = [];
-    const scales = [
-      {w: 0.42, h: 0.56, xs: [0.22, 0.50, 0.78], ys: [0.22, 0.50, 0.78]},
-      {w: 0.66, h: 0.78, xs: [0.25, 0.50, 0.75], ys: [0.28, 0.50, 0.72]}
-    ];
-    for (const scale of scales) {
-      const rw = Math.round(width * scale.w), rh = Math.round(height * scale.h);
-      for (const cy of scale.ys) for (const cx of scale.xs) {
-        const x = Math.max(0, Math.min(width-rw, Math.round(cx*width-rw/2)));
-        const y = Math.max(0, Math.min(height-rh, Math.round(cy*height-rh/2)));
-        if (!regions.some(r => Math.abs(r.x-x)<8 && Math.abs(r.y-y)<8 && Math.abs(r.w-rw)<8)) {
-          regions.push({x,y,w:rw,h:rh,score:-1});
-        }
+    const addGrid = (fractionW, fractionH, columns, rows) => {
+      const rw = Math.round(width * fractionW), rh = Math.round(height * fractionH);
+      for (let row=0; row<rows; row++) for (let col=0; col<columns; col++) {
+        const cx = columns===1 ? 0.5 : 0.08 + col * (0.84/(columns-1));
+        const cy = rows===1 ? 0.5 : 0.08 + row * (0.84/(rows-1));
+        const x = Math.max(0,Math.min(width-rw,Math.round(cx*width-rw/2)));
+        const y = Math.max(0,Math.min(height-rh,Math.round(cy*height-rh/2)));
+        regions.push({x,y,w:rw,h:rh,score:-1});
       }
-    }
+    };
+    addGrid(0.38,0.42,3,3);
+    addGrid(0.62,0.68,2,2);
+    addGrid(0.86,0.90,1,1);
+    regions.push({x:0,y:0,w:width,h:height,score:-1});
     return regions;
   }
   function drawCandidates(regions, width, height) {
@@ -284,8 +283,8 @@
     ctx.clearRect(0,0,width,height);
     const ranked = [...regions].sort((a,b)=>b.score-a.score).slice(0,3);
     ranked.forEach((r,index)=>{
-      if (r.score < 0.35) return;
-      const strong = r.score >= 0.72;
+      if (r.score < 0.25) return;
+      const strong = r.score >= 0.68;
       ctx.strokeStyle = strong ? '#20e66b' : '#ffd34d';
       ctx.lineWidth = Math.max(3, Math.round(width/240));
       ctx.setLineDash(index===0 ? [] : [10,7]);
@@ -324,11 +323,11 @@
       const percent=Math.round(similarity*100);
       scan.score.textContent=percent+'%';
       scan.bar.style.width=percent+'%';
-      if(similarity>=0.78){
+      if(similarity>=0.72){
         scan.label.textContent='Possible match in highlighted region';
         scan.state.textContent='Possible object location highlighted';
         scan.guidance.textContent='Green boxes show visually similar candidate regions. Check the object yourself; this experimental score is not proof of identity.';
-      }else if(similarity>=0.58){
+      }else if(similarity>=0.48){
         scan.label.textContent='Weak visual candidate';
         scan.state.textContent='Scanning candidate regions…';
         scan.guidance.textContent='Yellow boxes are weaker visual matches. Move slowly and try different angles and distances.';
@@ -342,7 +341,7 @@
       scan.guidance.textContent=error.message||'Try again.';
     }finally{
       scanBusy=false;
-      if(scanActive) scanTimer=setTimeout(scanFrame,1400);
+      if(scanActive) scanTimer=setTimeout(scanFrame,1800);
     }
   }
 
