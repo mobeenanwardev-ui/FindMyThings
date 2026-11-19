@@ -50,3 +50,17 @@
 
 /* The object candidate is deliberately a single compact box. */
 #detection-overlay{pointer-events:none}
+
+/* Maximise the live camera viewport on mobile devices. */
+@media(max-width:600px){
+  .scan-card{padding-left:10px;padding-right:10px}
+  .scan-card .dialog-heading{margin-bottom:6px}
+  .scan-target{padding:7px;margin-bottom:6px}
+  .scan-target img{width:42px;height:42px}
+  .scan-target small{font-size:10px}
+  .camera-frame{flex:1 1 auto;min-height:0;height:100%;width:100%;aspect-ratio:auto;border-radius:12px}
+  .match-panel{padding:8px 10px;margin-top:6px}
+  .match-panel p{font-size:10px}
+  .scan-stop{padding:10px;margin-top:6px}
+  .scan-card .privacy-note{font-size:9px;margin-top:5px}
+}
