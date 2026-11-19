@@ -500,18 +500,23 @@ class _ItemDialogState extends State<ItemDialog> {
     final total=existing.length+_newPhotos.length;
     return AlertDialog(backgroundColor:const Color(0xFFFFFEFA),
       title:Text(widget.item==null?'Add a thing':'Edit your thing',style:const TextStyle(fontSize:22,fontWeight:FontWeight.w800)),
-      content:SingleChildScrollView(child:DropTarget(
-        onDragEntered: (_) { if (mounted) setState(() => _dragging = true); },
-        onDragExited: (_) { if (mounted) setState(() => _dragging = false); },
-        onDragDone: _handleDroppedFiles,
-        child: Container(
-          decoration: BoxDecoration(
-            border: _dragging ? Border.all(color: green, width: 2) : null,
-            borderRadius: BorderRadius.circular(16),
-            color: _dragging ? const Color(0xFFE8EEE8) : null,
-          ),
-          padding: const EdgeInsets.all(4),
-          child: Column(mainAxisSize:MainAxisSize.min,children:[
+      content: SingleChildScrollView(
+        child: DropTarget(
+          onDragEntered: (_) {
+            if (mounted) setState(() => _dragging = true);
+          },
+          onDragExited: (_) {
+            if (mounted) setState(() => _dragging = false);
+          },
+          onDragDone: _handleDroppedFiles,
+          child: Container(
+            decoration: BoxDecoration(
+              border: _dragging ? Border.all(color: green, width: 2) : null,
+              borderRadius: BorderRadius.circular(16),
+              color: _dragging ? const Color(0xFFE8EEE8) : null,
+            ),
+            padding: const EdgeInsets.all(4),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
         TextField(controller:_name,autofocus:true,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'What is it called?',hintText:'For example: Blue backpack')),
         const SizedBox(height:10),
         TextField(controller:_category,textCapitalization:TextCapitalization.words,decoration:const InputDecoration(labelText:'Category',hintText:'For example: Everyday items')),
@@ -529,10 +534,29 @@ class _ItemDialogState extends State<ItemDialog> {
         else
           SizedBox(width:double.infinity,child:OutlinedButton.icon(onPressed:_busy?null:_photoMenu,icon:const Icon(Icons.add_photo_alternate_outlined),label:Text(_busy?'Opening…':(total > 0 ? 'Change photo' : 'Add a photo')))),
         if(total>0)TextButton.icon(onPressed:()=>setState(()=>_removeAll=true),icon:const Icon(Icons.delete_outline),label:const Text('Remove photo')),
-        if(_error!=null)Padding(padding:const EdgeInsets.only(top:7),child:Text(_error!,style:const TextStyle(color:Colors.red,fontSize:12))),
-      ]),
-      )),
-      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),FilledButton(onPressed:_busy?null:_submit,child:const Text('Save'))]);
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 7),
+                  child: Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.red, fontSize: 12),
+                  ),
+                ),
+            ]),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _submit,
+          child: const Text('Save'),
+        ),
+      ],
+    );
   }
 }
 
