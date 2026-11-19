@@ -1,0 +1,15 @@
+{
+  "id": "./",
+  "name": "FindMyThings",
+  "short_name": "FindMyThings",
+  "description": "A private, offline-first inventory for the things you want to find.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f5ef",
+  "theme_color": "#17483b",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
